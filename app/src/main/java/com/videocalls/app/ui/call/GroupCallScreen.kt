@@ -5,15 +5,23 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.videocalls.app.data.local.AppDatabaseHelper
 import com.videocalls.app.data.model.CallStatus
 import com.videocalls.app.data.repository.CallSignalingRepository
 import com.videocalls.app.service.CallService
@@ -49,6 +58,8 @@ fun GroupCallScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val dbHelper = remember { AppDatabaseHelper.getInstance(context) }
+    val contacts by dbHelper.contactsFlow.collectAsState()
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -102,6 +113,15 @@ fun GroupCallScreen(
     val callSession by signalingRepo.observeCallSession(callId).collectAsState(initial = null)
     val participants = callSession?.activeParticipants ?: emptyList()
     var isEnded by remember { mutableStateOf(false) }
+
+    // Pinning state: ID of pinned peer (or "local")
+    var pinnedId by remember { mutableStateOf<String?>(null) }
+
+    fun getDisplayName(uid: String): String {
+        if (uid == currentUid || uid == "local") return "You"
+        val found = contacts.find { it.registeredUser?.uid == uid || it.normalizedPhoneNumber == uid }
+        return found?.displayName ?: "User ${uid.takeLast(4)}"
+    }
 
     fun leaveCallInternal() {
         if (isEnded) return
@@ -173,13 +193,11 @@ fun GroupCallScreen(
     }
 
     // Mesh connection establishment:
-    // Whenever participants list changes, connect with peers.
     // Deterministic tie-breaker: smaller UID creates offer to larger UID.
     LaunchedEffect(participants) {
         val otherPeers = participants.filter { it != currentUid }
         for (peerUid in otherPeers) {
             if (currentUid < peerUid) {
-                // We initiate offer
                 rtcClient.createOffer(peerUid) { offer ->
                     coroutineScope.launch {
                         signalingRepo.sendOffer(callId, currentUid, peerUid, offer)
@@ -199,11 +217,7 @@ fun GroupCallScreen(
         }
     }
 
-    // Render Tiles Grid
-    // Total tiles = 1 (local) + remote peers
-    val remotePeers = (participants.filter { it != currentUid } + remoteVideoTracks.keys).distinct()
-    val totalTiles = remotePeers.size + 1
-    val gridColumns = if (totalTiles <= 2) 1 else 2
+    val otherPeers = (participants.filter { it != currentUid } + remoteVideoTracks.keys).distinct()
 
     Box(
         modifier = Modifier
@@ -211,11 +225,11 @@ fun GroupCallScreen(
             .background(Color(0xFF0F172A))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+            // Top App Bar Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 44.dp, start = 20.dp, end = 20.dp, bottom = 12.dp),
+                    .padding(top = 44.dp, start = 20.dp, end = 20.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -226,8 +240,8 @@ fun GroupCallScreen(
                         color = Color.White
                     )
                     Text(
-                        text = "${participants.size} participants · Mesh P2P",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "${otherPeers.size + 1} in call · Tap participant to pin",
+                        style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.7f)
                     )
                 }
@@ -246,49 +260,229 @@ fun GroupCallScreen(
                 }
             }
 
-            // Video Grid (Max 8 participants)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(gridColumns),
+            // Dynamic Vertical-First Video Area
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxWidth()
             ) {
-                // Local Tile
-                item {
-                    ParticipantTile(
-                        title = "You",
-                        videoTrack = if (isVideo && isVideoEnabled) localVideoTrack else null,
-                        eglBase = rtcClient.eglBase,
-                        isMirror = true,
-                        isMuted = isMicMuted
-                    )
-                }
+                when {
+                    // 1. PINNED MODE: Main stage + bottom carousel of thumbnails
+                    pinnedId != null -> {
+                        val activePinnedId = pinnedId!!
+                        val isPinnedLocal = activePinnedId == "local" || activePinnedId == currentUid
+                        val pinnedTrack = if (isPinnedLocal) {
+                            if (isVideo && isVideoEnabled) localVideoTrack else null
+                        } else {
+                            remoteVideoTracks[activePinnedId]
+                        }
 
-                // Remote Tiles
-                items(remotePeers, key = { it }) { peerUid ->
-                    val videoTrack = remoteVideoTracks[peerUid]
-                    ParticipantTile(
-                        title = "Participant",
-                        videoTrack = videoTrack,
-                        eglBase = rtcClient.eglBase,
-                        isMirror = false,
-                        isMuted = false
-                    )
+                        val remainingPeers = if (isPinnedLocal) {
+                            otherPeers
+                        } else {
+                            listOf("local") + otherPeers.filter { it != activePinnedId }
+                        }
+
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Main Pinned Stage (Full width vertical viewport)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                ParticipantTile(
+                                    title = getDisplayName(activePinnedId),
+                                    videoTrack = pinnedTrack,
+                                    eglBase = rtcClient.eglBase,
+                                    isMirror = isPinnedLocal,
+                                    isMuted = if (isPinnedLocal) isMicMuted else false,
+                                    isPinned = true,
+                                    isOverlay = false,
+                                    onPinClick = { pinnedId = null },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            // Bottom Strip of Other Participants (Vertical thumbnails)
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(remainingPeers, key = { it }) { peerId ->
+                                    val isPeerLocal = peerId == "local" || peerId == currentUid
+                                    val track = if (isPeerLocal) {
+                                        if (isVideo && isVideoEnabled) localVideoTrack else null
+                                    } else {
+                                        remoteVideoTracks[peerId]
+                                    }
+                                    ParticipantTile(
+                                        title = getDisplayName(peerId),
+                                        videoTrack = track,
+                                        eglBase = rtcClient.eglBase,
+                                        isMirror = isPeerLocal,
+                                        isMuted = if (isPeerLocal) isMicMuted else false,
+                                        isPinned = false,
+                                        isOverlay = true,
+                                        onPinClick = { pinnedId = peerId },
+                                        modifier = Modifier
+                                            .size(width = 105.dp, height = 150.dp)
+                                            .clickable { pinnedId = peerId }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. ONE-ON-ONE IN GROUP (Single remote peer + Local PIP)
+                    otherPeers.size == 1 -> {
+                        val singlePeer = otherPeers.first()
+                        val remoteTrack = remoteVideoTracks[singlePeer]
+
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // Fullscreen Vertical Remote Participant
+                            ParticipantTile(
+                                title = getDisplayName(singlePeer),
+                                videoTrack = remoteTrack,
+                                eglBase = rtcClient.eglBase,
+                                isMirror = false,
+                                isMuted = false,
+                                isPinned = false,
+                                isOverlay = false,
+                                onPinClick = { pinnedId = singlePeer },
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+
+                            // Local PIP Card in Top Right
+                            Card(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 16.dp, end = 24.dp)
+                                    .size(width = 110.dp, height = 160.dp)
+                                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                    .clickable { pinnedId = "local" },
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                            ) {
+                                ParticipantTile(
+                                    title = "You",
+                                    videoTrack = if (isVideo && isVideoEnabled) localVideoTrack else null,
+                                    eglBase = rtcClient.eglBase,
+                                    isMirror = true,
+                                    isMuted = isMicMuted,
+                                    isPinned = false,
+                                    isOverlay = true,
+                                    onPinClick = { pinnedId = "local" },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. TWO REMOTE PEERS: Split-screen vertical halves + Local PIP
+                    otherPeers.size == 2 -> {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                otherPeers.forEach { peerId ->
+                                    ParticipantTile(
+                                        title = getDisplayName(peerId),
+                                        videoTrack = remoteVideoTracks[peerId],
+                                        eglBase = rtcClient.eglBase,
+                                        isMirror = false,
+                                        isMuted = false,
+                                        isPinned = false,
+                                        isOverlay = false,
+                                        onPinClick = { pinnedId = peerId },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            // Local PIP in top right
+                            Card(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 16.dp, end = 24.dp)
+                                    .size(width = 100.dp, height = 145.dp)
+                                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                    .clickable { pinnedId = "local" },
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                            ) {
+                                ParticipantTile(
+                                    title = "You",
+                                    videoTrack = if (isVideo && isVideoEnabled) localVideoTrack else null,
+                                    eglBase = rtcClient.eglBase,
+                                    isMirror = true,
+                                    isMuted = isMicMuted,
+                                    isPinned = false,
+                                    isOverlay = true,
+                                    onPinClick = { pinnedId = "local" },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+
+                    // 4. THREE OR MORE PEERS: Vertical grid with portrait tiles (3:4 ratio)
+                    else -> {
+                        val allTiles = listOf("local") + otherPeers
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(allTiles, key = { it }) { id ->
+                                val isPeerLocal = id == "local" || id == currentUid
+                                val track = if (isPeerLocal) {
+                                    if (isVideo && isVideoEnabled) localVideoTrack else null
+                                } else {
+                                    remoteVideoTracks[id]
+                                }
+                                ParticipantTile(
+                                    title = getDisplayName(id),
+                                    videoTrack = track,
+                                    eglBase = rtcClient.eglBase,
+                                    isMirror = isPeerLocal,
+                                    isMuted = if (isPeerLocal) isMicMuted else false,
+                                    isPinned = false,
+                                    isOverlay = true,
+                                    onPinClick = { pinnedId = id },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(0.75f)
+                                        .clickable { pinnedId = id }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(100.dp))
         }
 
-        // Bottom Controls Bar
+        // Bottom Call Controls Bar
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 36.dp, start = 20.dp, end = 20.dp),
             shape = RoundedCornerShape(32.dp),
-            color = Color(0xFF1E293B).copy(alpha = 0.9f),
+            color = Color(0xFF1E293B).copy(alpha = 0.95f),
             shadowElevation = 10.dp
         ) {
             Row(
@@ -296,6 +490,7 @@ fun GroupCallScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // Mic Mute Toggle
                 FilledIconButton(
                     onClick = { rtcClient.toggleMic() },
                     colors = IconButtonDefaults.filledIconButtonColors(
@@ -310,6 +505,7 @@ fun GroupCallScreen(
                 }
 
                 if (isVideo) {
+                    // Camera Flip
                     FilledIconButton(
                         onClick = { rtcClient.flipCamera() },
                         colors = IconButtonDefaults.filledIconButtonColors(
@@ -320,6 +516,7 @@ fun GroupCallScreen(
                         Icon(Icons.Rounded.Cameraswitch, contentDescription = "Flip")
                     }
 
+                    // Video Camera On/Off
                     FilledIconButton(
                         onClick = { rtcClient.toggleVideo() },
                         colors = IconButtonDefaults.filledIconButtonColors(
@@ -328,37 +525,41 @@ fun GroupCallScreen(
                         )
                     ) {
                         Icon(
-                            imageVector = if (isVideoEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                            imageVector = if (!isVideoEnabled) Icons.Rounded.VideocamOff else Icons.Rounded.Videocam,
                             contentDescription = "Video"
                         )
                     }
                 }
 
+                // Speakerphone Toggle
                 FilledIconButton(
                     onClick = { rtcClient.toggleSpeakerphone() },
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (isSpeakerOn) Color(0xFF0284C7).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                        containerColor = if (isSpeakerOn) Color(0xFF38BDF8).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
                         contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
                     )
                 ) {
                     Icon(
-                        imageVector = if (isSpeakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeDown,
+                        imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
                         contentDescription = "Speaker"
                     )
                 }
 
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // End Call Button
                 FilledIconButton(
                     onClick = { leaveCallInternal() },
-                    modifier = Modifier.size(52.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = RoseCallDecline,
                         contentColor = Color.White
-                    )
+                    ),
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.CallEnd,
-                        contentDescription = "Leave Call",
-                        modifier = Modifier.size(28.dp)
+                        contentDescription = "End Call",
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -372,13 +573,15 @@ fun ParticipantTile(
     videoTrack: VideoTrack?,
     eglBase: org.webrtc.EglBase,
     isMirror: Boolean = false,
-    isMuted: Boolean = false
+    isMuted: Boolean = false,
+    isPinned: Boolean = false,
+    isOverlay: Boolean = false,
+    onPinClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -388,16 +591,18 @@ fun ParticipantTile(
                     videoTrack = videoTrack,
                     eglBase = eglBase,
                     isMirror = isMirror,
-                    isOverlay = true
+                    isOverlay = isOverlay
                 )
             } else {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E293B)),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(60.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
@@ -412,18 +617,38 @@ fun ParticipantTile(
                 }
             }
 
-            // Bottom overlay with name & mic status
+            // Top-right Pin Indicator & Toggle Button
+            if (onPinClick != null) {
+                IconButton(
+                    onClick = onPinClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(32.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isPinned) Icons.Rounded.PushPin else Icons.Rounded.PinDrop,
+                        contentDescription = if (isPinned) "Unpin" else "Pin",
+                        tint = if (isPinned) Color(0xFFF59E0B) else Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Bottom-left name and mic tag
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
                     color = Color.White
                 )
                 if (isMuted) {
