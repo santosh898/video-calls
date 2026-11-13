@@ -9,6 +9,7 @@ data class Group(
     val id: String = "",
     val name: String = "",
     val createdBy: String = "",
+    val creatorPhone: String = "",
     val memberUids: List<String> = emptyList(),
     val memberPhones: List<String> = emptyList(),
     val activeCallId: String? = null,

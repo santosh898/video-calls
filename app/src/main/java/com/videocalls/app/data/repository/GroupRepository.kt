@@ -2,6 +2,7 @@ package com.videocalls.app.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.videocalls.app.VideoCallApp
@@ -18,7 +19,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "GroupRepository"
 
@@ -38,13 +38,11 @@ class GroupRepository(
     ): String = withContext(Dispatchers.IO) {
         val creatorPhone = PhoneNumberHelper.cleanIndianNumber(authRepository.getLocalPhoneNumber())
 
-        // 1. Gather all phone numbers (including creator) and clean to 10 digits
         val allMemberPhones = (memberPhones + creatorPhone)
             .map { PhoneNumberHelper.cleanIndianNumber(it) }
             .filter { it.length == 10 }
             .distinct()
 
-        // 2. Fetch any missing UIDs for these phone numbers from Firestore
         val resolvedUids = memberUids.toMutableSet().apply {
             if (creatorUid.isNotBlank()) add(creatorUid)
         }
@@ -68,6 +66,7 @@ class GroupRepository(
             id = groupRef.id,
             name = name,
             createdBy = creatorUid,
+            creatorPhone = creatorPhone,
             memberUids = resolvedUids.toList(),
             memberPhones = allMemberPhones
         )
@@ -85,6 +84,7 @@ class GroupRepository(
     /**
      * Local-first reactive stream: emits SQLite cached groups immediately,
      * updates live from Firestore snapshot listeners matching user phone OR uid.
+     * When a group is deleted in Firestore, it is pruned immediately from memory and SQLite.
      */
     fun observeUserGroups(currentUid: String): Flow<List<Group>> = callbackFlow {
         // 1. Emit local SQLite cache immediately (0ms delay)
@@ -94,14 +94,19 @@ class GroupRepository(
         }
 
         val myPhone = PhoneNumberHelper.cleanIndianNumber(authRepository.getLocalPhoneNumber())
-        val groupMap = ConcurrentHashMap<String, Group>()
-        cached.forEach { groupMap[it.id] = it }
 
-        fun emitSorted() {
-            val list = groupMap.values.sortedByDescending { it.createdAt?.time ?: 0L }
-            trySend(list)
+        // Discrete maps per listener so that remote deletions in Firestore are captured
+        var phoneGroups = emptyMap<String, Group>()
+        var uidGroups = emptyMap<String, Group>()
+
+        fun emitMerged() {
+            val mergedMap = mutableMapOf<String, Group>()
+            mergedMap.putAll(phoneGroups)
+            mergedMap.putAll(uidGroups)
+            val sorted = mergedMap.values.sortedByDescending { it.createdAt?.time ?: 0L }
+            trySend(sorted)
             scope.launch {
-                dbHelper.saveGroups(list)
+                dbHelper.saveGroups(sorted)
             }
         }
 
@@ -116,9 +121,8 @@ class GroupRepository(
                         Log.e(TAG, "Error observing groups by phone", error)
                         return@addSnapshotListener
                     }
-                    val groups = snapshot?.documents?.mapNotNull { it.toObject(Group::class.java) } ?: emptyList()
-                    groups.forEach { groupMap[it.id] = it }
-                    emitSorted()
+                    phoneGroups = snapshot?.documents?.mapNotNull { it.toObject(Group::class.java) }?.associateBy { it.id } ?: emptyMap()
+                    emitMerged()
                 }
             listeners.add(phoneListener)
         }
@@ -132,9 +136,8 @@ class GroupRepository(
                         Log.e(TAG, "Error observing groups by UID", error)
                         return@addSnapshotListener
                     }
-                    val groups = snapshot?.documents?.mapNotNull { it.toObject(Group::class.java) } ?: emptyList()
-                    groups.forEach { groupMap[it.id] = it }
-                    emitSorted()
+                    uidGroups = snapshot?.documents?.mapNotNull { it.toObject(Group::class.java) }?.associateBy { it.id } ?: emptyMap()
+                    emitMerged()
                 }
             listeners.add(uidListener)
         }
@@ -172,10 +175,8 @@ class GroupRepository(
             }
         }
 
-        if (groupMap.isNotEmpty()) {
-            val sorted = groupMap.values.sortedByDescending { it.createdAt?.time ?: 0L }
-            dbHelper.saveGroups(sorted)
-        }
+        val sorted = groupMap.values.sortedByDescending { it.createdAt?.time ?: 0L }
+        dbHelper.saveGroups(sorted)
     }
 
     suspend fun deleteGroup(groupId: String): Unit = withContext(Dispatchers.IO) {
@@ -186,6 +187,26 @@ class GroupRepository(
             Log.e(TAG, "Error deleting group from Firestore", e)
         }
         // Delete from local SQLite
+        dbHelper.deleteGroup(groupId)
+    }
+
+    suspend fun leaveGroup(groupId: String, uid: String, phone: String): Unit = withContext(Dispatchers.IO) {
+        val cleanPhone = PhoneNumberHelper.cleanIndianNumber(phone)
+        try {
+            val groupRef = firestore.collection("groups").document(groupId)
+            val updates = mutableMapOf<String, Any>()
+            if (uid.isNotBlank()) {
+                updates["memberUids"] = FieldValue.arrayRemove(uid)
+            }
+            if (cleanPhone.isNotBlank()) {
+                updates["memberPhones"] = FieldValue.arrayRemove(cleanPhone)
+            }
+            if (updates.isNotEmpty()) {
+                groupRef.update(updates).await()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error leaving group in Firestore", e)
+        }
         dbHelper.deleteGroup(groupId)
     }
 

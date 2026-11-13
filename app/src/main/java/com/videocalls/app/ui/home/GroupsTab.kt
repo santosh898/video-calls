@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Groups
@@ -26,7 +27,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.videocalls.app.data.model.Group
+import com.videocalls.app.data.repository.AuthRepository
 import com.videocalls.app.data.repository.GroupRepository
+import com.videocalls.app.data.util.PhoneNumberHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -38,60 +41,76 @@ fun GroupsTab(
     onStartGroupCall: (groupId: String, groupName: String, isVideo: Boolean) -> Unit,
     onJoinActiveCall: (callId: String, groupId: String, groupName: String) -> Unit,
     modifier: Modifier = Modifier,
-    groupRepository: GroupRepository = remember { GroupRepository() }
+    groupRepository: GroupRepository = remember { GroupRepository() },
+    authRepository: AuthRepository = remember { AuthRepository() }
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val groups by groupRepository.observeUserGroups(currentUid).collectAsState(initial = emptyList())
+    val myPhone = remember { PhoneNumberHelper.cleanIndianNumber(authRepository.getLocalPhoneNumber()) }
+
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
 
-    var groupToDelete by remember { mutableStateOf<Group?>(null) }
-    var isDeleting by remember { mutableStateOf(false) }
+    var activeActionGroup by remember { mutableStateOf<Group?>(null) }
+    var isOperating by remember { mutableStateOf(false) }
 
-    if (groupToDelete != null) {
-        val grp = groupToDelete!!
+    if (activeActionGroup != null) {
+        val grp = activeActionGroup!!
+        val isCreator = (grp.createdBy.isNotBlank() && grp.createdBy == currentUid) ||
+                        (grp.creatorPhone.isNotBlank() && grp.creatorPhone == myPhone)
+
         AlertDialog(
-            onDismissRequest = { if (!isDeleting) groupToDelete = null },
+            onDismissRequest = { if (!isOperating) activeActionGroup = null },
             icon = {
                 Icon(
-                    imageVector = Icons.Rounded.Delete,
+                    imageVector = if (isCreator) Icons.Rounded.Delete else Icons.AutoMirrored.Rounded.ExitToApp,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
             },
-            title = { Text("Delete Group?") },
-            text = { Text("Are you sure you want to delete '${grp.name}'? This will permanently delete the group for all members.") },
+            title = { Text(if (isCreator) "Delete Group?" else "Leave Group?") },
+            text = {
+                Text(
+                    if (isCreator) "Are you sure you want to delete '${grp.name}'? This will permanently delete the group for all members."
+                    else "Are you sure you want to leave '${grp.name}'? You will no longer be a member of this group."
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        isDeleting = true
+                        isOperating = true
                         coroutineScope.launch {
                             try {
-                                groupRepository.deleteGroup(grp.id)
-                                isDeleting = false
-                                groupToDelete = null
-                                Toast.makeText(context, "Group deleted", Toast.LENGTH_SHORT).show()
+                                if (isCreator) {
+                                    groupRepository.deleteGroup(grp.id)
+                                    Toast.makeText(context, "Group deleted", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    groupRepository.leaveGroup(grp.id, currentUid, myPhone)
+                                    Toast.makeText(context, "Left group", Toast.LENGTH_SHORT).show()
+                                }
+                                isOperating = false
+                                activeActionGroup = null
                             } catch (e: Exception) {
-                                isDeleting = false
-                                Toast.makeText(context, "Error deleting group: ${e.message}", Toast.LENGTH_SHORT).show()
+                                isOperating = false
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                             }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    enabled = !isDeleting
+                    enabled = !isOperating
                 ) {
-                    if (isDeleting) {
+                    if (isOperating) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onError, strokeWidth = 2.dp)
                     } else {
-                        Text("Delete", fontWeight = FontWeight.Bold)
+                        Text(if (isCreator) "Delete" else "Leave", fontWeight = FontWeight.Bold)
                     }
                 }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { groupToDelete = null },
-                    enabled = !isDeleting
+                    onClick = { activeActionGroup = null },
+                    enabled = !isOperating
                 ) {
                     Text("Cancel")
                 }
@@ -169,12 +188,16 @@ fun GroupsTab(
                 }
             } else {
                 items(groups, key = { it.id }) { group ->
+                    val isCreator = (group.createdBy.isNotBlank() && group.createdBy == currentUid) ||
+                                    (group.creatorPhone.isNotBlank() && group.creatorPhone == myPhone)
+
                     GroupCard(
                         group = group,
+                        isCreator = isCreator,
                         onClick = { onOpenGroupDetail(group.id) },
                         onStartGroupCall = { isVideo -> onStartGroupCall(group.id, group.name, isVideo) },
                         onJoinActiveCall = { callId -> onJoinActiveCall(callId, group.id, group.name) },
-                        onDeleteGroup = { groupToDelete = group }
+                        onActionClick = { activeActionGroup = group }
                     )
                 }
             }
@@ -185,10 +208,11 @@ fun GroupsTab(
 @Composable
 fun GroupCard(
     group: Group,
+    isCreator: Boolean,
     onClick: () -> Unit,
     onStartGroupCall: (isVideo: Boolean) -> Unit,
     onJoinActiveCall: (callId: String) -> Unit,
-    onDeleteGroup: () -> Unit
+    onActionClick: () -> Unit
 ) {
     val hasActiveCall = !group.activeCallId.isNullOrBlank()
 
@@ -237,7 +261,9 @@ fun GroupCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${group.memberPhones.size} members" + if (hasActiveCall) " • Active Call" else "",
+                    text = "${group.memberPhones.size} members" +
+                           (if (isCreator) " • Admin" else "") +
+                           (if (hasActiveCall) " • Active Call" else ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (hasActiveCall) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -272,10 +298,10 @@ fun GroupCard(
                             contentDescription = "Video Call"
                         )
                     }
-                    IconButton(onClick = onDeleteGroup) {
+                    IconButton(onClick = onActionClick) {
                         Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = "Delete",
+                            imageVector = if (isCreator) Icons.Rounded.Delete else Icons.AutoMirrored.Rounded.ExitToApp,
+                            contentDescription = if (isCreator) "Delete Group" else "Leave Group",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             modifier = Modifier.size(20.dp)
                         )

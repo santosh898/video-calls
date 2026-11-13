@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import java.util.Date
 
 private const val DB_NAME = "videocalls_local.db"
-private const val DB_VERSION = 1
+private const val DB_VERSION = 2
 
 class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
     SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
@@ -69,6 +69,7 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 created_by TEXT NOT NULL,
+                creator_phone TEXT NOT NULL DEFAULT '',
                 member_uids TEXT NOT NULL,
                 member_phones TEXT NOT NULL,
                 active_call_id TEXT,
@@ -230,7 +231,7 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
         val db = readableDatabase
         val cursor: Cursor = db.rawQuery(
             """
-            SELECT id, name, created_by, member_uids, member_phones, active_call_id, created_at
+            SELECT id, name, created_by, creator_phone, member_uids, member_phones, active_call_id, created_at
             FROM groups_cache
             ORDER BY created_at DESC
             """.trimIndent(),
@@ -241,6 +242,7 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
             val iId = c.getColumnIndexOrThrow("id")
             val iName = c.getColumnIndexOrThrow("name")
             val iCreatedBy = c.getColumnIndexOrThrow("created_by")
+            val iCreatorPhone = c.getColumnIndexOrThrow("creator_phone")
             val iMemberUids = c.getColumnIndexOrThrow("member_uids")
             val iMemberPhones = c.getColumnIndexOrThrow("member_phones")
             val iActiveCall = c.getColumnIndexOrThrow("active_call_id")
@@ -256,6 +258,7 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
                         id = c.getString(iId) ?: "",
                         name = c.getString(iName) ?: "Group",
                         createdBy = c.getString(iCreatedBy) ?: "",
+                        creatorPhone = c.getString(iCreatorPhone) ?: "",
                         memberUids = uids,
                         memberPhones = phones,
                         activeCallId = c.getString(iActiveCall),
@@ -285,18 +288,19 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
             db.execSQL("DELETE FROM groups_cache")
             val stmt = db.compileStatement(
                 """
-                INSERT INTO groups_cache (id, name, created_by, member_uids, member_phones, active_call_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO groups_cache (id, name, created_by, creator_phone, member_uids, member_phones, active_call_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             )
             for (g in groups) {
                 stmt.bindString(1, g.id)
                 stmt.bindString(2, g.name)
                 stmt.bindString(3, g.createdBy)
-                stmt.bindString(4, g.memberUids.joinToString(","))
-                stmt.bindString(5, g.memberPhones.joinToString(","))
-                stmt.bindString(6, g.activeCallId ?: "")
-                stmt.bindLong(7, g.createdAt?.time ?: System.currentTimeMillis())
+                stmt.bindString(4, g.creatorPhone)
+                stmt.bindString(5, g.memberUids.joinToString(","))
+                stmt.bindString(6, g.memberPhones.joinToString(","))
+                stmt.bindString(7, g.activeCallId ?: "")
+                stmt.bindLong(8, g.createdAt?.time ?: System.currentTimeMillis())
                 stmt.executeInsert()
             }
             db.setTransactionSuccessful()

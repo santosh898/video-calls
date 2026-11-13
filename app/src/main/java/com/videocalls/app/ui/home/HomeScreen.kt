@@ -1,22 +1,24 @@
 package com.videocalls.app.ui.home
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.videocalls.app.BuildConfig
 import com.videocalls.app.data.model.CallType
 import com.videocalls.app.data.repository.AuthRepository
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,8 +32,8 @@ fun HomeScreen(
     onSignOut: () -> Unit,
     authRepository: AuthRepository = remember { AuthRepository() }
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Contacts", "Groups")
+    val coroutineScope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     Scaffold(
         topBar = {
@@ -63,7 +65,7 @@ fun HomeScreen(
                         onSignOut()
                     }) {
                         Icon(
-                            imageVector = Icons.Rounded.Logout,
+                            imageVector = Icons.AutoMirrored.Rounded.Logout,
                             contentDescription = "Sign Out"
                         )
                     }
@@ -74,7 +76,7 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            if (selectedTab == 1) {
+            if (pagerState.currentPage == 1) {
                 FloatingActionButton(
                     onClick = onCreateGroupClick,
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -91,35 +93,48 @@ fun HomeScreen(
                 .padding(paddingValues)
         ) {
             PrimaryTabRow(
-                selectedTabIndex = selectedTab,
+                selectedTabIndex = pagerState.currentPage,
                 containerColor = MaterialTheme.colorScheme.background,
                 divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)) }
             ) {
                 Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Contacts", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                    selected = pagerState.currentPage == 0,
+                    onClick = {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(0)
+                        }
+                    },
+                    text = { Text("Contacts", fontWeight = if (pagerState.currentPage == 0) FontWeight.Bold else FontWeight.Normal) },
                     icon = { Icon(Icons.Rounded.Call, contentDescription = null) }
                 )
                 Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Groups", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    selected = pagerState.currentPage == 1,
+                    onClick = {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(1)
+                        }
+                    },
+                    text = { Text("Groups", fontWeight = if (pagerState.currentPage == 1) FontWeight.Bold else FontWeight.Normal) },
                     icon = { Icon(Icons.Rounded.Groups, contentDescription = null) }
                 )
             }
 
-            when (selectedTab) {
-                0 -> ContactsListTab(
-                    currentUid = currentUid,
-                    onStartCall = onStartSingleCall
-                )
-                1 -> GroupsTab(
-                    currentUid = currentUid,
-                    onOpenGroupDetail = onOpenGroupDetail,
-                    onStartGroupCall = onStartGroupCall,
-                    onJoinActiveCall = onJoinActiveCall
-                )
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> ContactsListTab(
+                        currentUid = currentUid,
+                        onStartCall = onStartSingleCall
+                    )
+                    1 -> GroupsTab(
+                        currentUid = currentUid,
+                        onOpenGroupDetail = onOpenGroupDetail,
+                        onStartGroupCall = onStartGroupCall,
+                        onJoinActiveCall = onJoinActiveCall
+                    )
+                }
             }
         }
     }
