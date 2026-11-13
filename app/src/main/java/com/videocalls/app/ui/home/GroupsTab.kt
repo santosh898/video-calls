@@ -1,5 +1,7 @@
 package com.videocalls.app.ui.home
 
+import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
@@ -19,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.videocalls.app.data.model.Group
@@ -36,17 +40,76 @@ fun GroupsTab(
     modifier: Modifier = Modifier,
     groupRepository: GroupRepository = remember { GroupRepository() }
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val groups by groupRepository.observeUserGroups(currentUid).collectAsState(initial = emptyList())
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
+
+    var groupToDelete by remember { mutableStateOf<Group?>(null) }
+    var isDeleting by remember { mutableStateOf(false) }
+
+    if (groupToDelete != null) {
+        val grp = groupToDelete!!
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) groupToDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Delete Group?") },
+            text = { Text("Are you sure you want to delete '${grp.name}'? This will permanently delete the group for all members.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isDeleting = true
+                        coroutineScope.launch {
+                            try {
+                                groupRepository.deleteGroup(grp.id)
+                                isDeleting = false
+                                groupToDelete = null
+                                Toast.makeText(context, "Group deleted", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                isDeleting = false
+                                Toast.makeText(context, "Error deleting group: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    enabled = !isDeleting
+                ) {
+                    if (isDeleting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onError, strokeWidth = 2.dp)
+                    } else {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { groupToDelete = null },
+                    enabled = !isDeleting
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
             coroutineScope.launch {
                 isRefreshing = true
-                delay(600) // snapshot listener syncs latest
+                try {
+                    groupRepository.refreshGroups(currentUid)
+                } catch (e: Exception) {
+                    Log.e("GroupsTab", "Error refreshing groups", e)
+                }
+                delay(300)
                 isRefreshing = false
             }
         },
@@ -110,7 +173,8 @@ fun GroupsTab(
                         group = group,
                         onClick = { onOpenGroupDetail(group.id) },
                         onStartGroupCall = { isVideo -> onStartGroupCall(group.id, group.name, isVideo) },
-                        onJoinActiveCall = { callId -> onJoinActiveCall(callId, group.id, group.name) }
+                        onJoinActiveCall = { callId -> onJoinActiveCall(callId, group.id, group.name) },
+                        onDeleteGroup = { groupToDelete = group }
                     )
                 }
             }
@@ -123,7 +187,8 @@ fun GroupCard(
     group: Group,
     onClick: () -> Unit,
     onStartGroupCall: (isVideo: Boolean) -> Unit,
-    onJoinActiveCall: (callId: String) -> Unit
+    onJoinActiveCall: (callId: String) -> Unit,
+    onDeleteGroup: () -> Unit
 ) {
     val hasActiveCall = !group.activeCallId.isNullOrBlank()
 
@@ -172,7 +237,7 @@ fun GroupCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${group.memberUids.size} members" + if (hasActiveCall) " • Active Call" else "",
+                    text = "${group.memberPhones.size} members" + if (hasActiveCall) " • Active Call" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (hasActiveCall) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -187,7 +252,7 @@ fun GroupCard(
                     Text("Join")
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onStartGroupCall(false) }) {
                         Icon(
                             imageVector = Icons.Rounded.Call,
@@ -205,6 +270,14 @@ fun GroupCard(
                         Icon(
                             imageVector = Icons.Rounded.Videocam,
                             contentDescription = "Video Call"
+                        )
+                    }
+                    IconButton(onClick = onDeleteGroup) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

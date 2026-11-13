@@ -272,6 +272,12 @@ class AppDatabaseHelper(context: Context = VideoCallApp.instance) :
         _groupsFlow.value = groups
     }
 
+    fun deleteGroup(groupId: String) {
+        val db = writableDatabase
+        db.delete("groups_cache", "id = ?", arrayOf(groupId))
+        refreshGroupsFromDb()
+    }
+
     suspend fun saveGroups(groups: List<Group>) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.beginTransaction()

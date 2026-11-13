@@ -201,7 +201,7 @@ fun GroupCallScreen(
 
     // Render Tiles Grid
     // Total tiles = 1 (local) + remote peers
-    val remotePeers = remoteVideoTracks.keys.toList()
+    val remotePeers = (participants.filter { it != currentUid } + remoteVideoTracks.keys).distinct()
     val totalTiles = remotePeers.size + 1
     val gridColumns = if (totalTiles <= 2) 1 else 2
 
@@ -387,7 +387,8 @@ fun ParticipantTile(
                     modifier = Modifier.fillMaxSize(),
                     videoTrack = videoTrack,
                     eglBase = eglBase,
-                    isMirror = isMirror
+                    isMirror = isMirror,
+                    isOverlay = true
                 )
             } else {
                 Box(

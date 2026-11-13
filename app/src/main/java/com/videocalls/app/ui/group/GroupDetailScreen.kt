@@ -1,5 +1,6 @@
 package com.videocalls.app.ui.group
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
@@ -16,10 +18,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.videocalls.app.data.repository.GroupRepository
 import com.videocalls.app.data.util.PhoneNumberHelper
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,7 +35,61 @@ fun GroupDetailScreen(
     onJoinActiveCall: (callId: String, groupId: String, groupName: String) -> Unit,
     groupRepository: GroupRepository = remember { GroupRepository() }
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val group by groupRepository.observeGroup(groupId).collectAsState(initial = null)
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog && group != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) showDeleteDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Delete Group?") },
+            text = { Text("Are you sure you want to delete '${group?.name}'? This will permanently delete the group for all members.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isDeleting = true
+                        coroutineScope.launch {
+                            try {
+                                groupRepository.deleteGroup(groupId)
+                                isDeleting = false
+                                showDeleteDialog = false
+                                Toast.makeText(context, "Group deleted", Toast.LENGTH_SHORT).show()
+                                onNavigateBack()
+                            } catch (e: Exception) {
+                                isDeleting = false
+                                Toast.makeText(context, "Error deleting group: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    enabled = !isDeleting
+                ) {
+                    if (isDeleting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onError, strokeWidth = 2.dp)
+                    } else {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false },
+                    enabled = !isDeleting
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -40,6 +98,17 @@ fun GroupDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (group != null) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = "Delete Group",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             )
@@ -99,8 +168,10 @@ fun GroupDetailScreen(
                             fontWeight = FontWeight.Bold
                         )
 
+                        Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
-                            text = "${grp.memberUids.size} members",
+                            text = "${grp.memberPhones.size} members",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -148,7 +219,7 @@ fun GroupDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "MEMBERS (${grp.memberUids.size})",
+                    text = "MEMBERS (${grp.memberPhones.size})",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -156,7 +227,11 @@ fun GroupDetailScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
                     items(grp.memberPhones) { phone ->
                         ListItem(
                             headlineContent = { Text(PhoneNumberHelper.formatForDisplay(phone), fontWeight = FontWeight.Medium) },
@@ -178,6 +253,29 @@ fun GroupDetailScreen(
                             }
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Prominent Delete Group Button
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete Group", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
