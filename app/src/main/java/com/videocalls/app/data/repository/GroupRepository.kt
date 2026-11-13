@@ -81,6 +81,94 @@ class GroupRepository(
         groupRef.id
     }
 
+    suspend fun updateGroupName(groupId: String, newName: String): Unit = withContext(Dispatchers.IO) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return@withContext
+        try {
+            firestore.collection("groups").document(groupId)
+                .update("name", trimmed)
+                .await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating group name in Firestore", e)
+        }
+        val cached = dbHelper.getAllGroups().map {
+            if (it.id == groupId) it.copy(name = trimmed) else it
+        }
+        dbHelper.saveGroups(cached)
+    }
+
+    suspend fun addMembers(groupId: String, newPhones: List<String>, newUids: List<String>): Unit = withContext(Dispatchers.IO) {
+        val cleanedPhones = newPhones.map { PhoneNumberHelper.cleanIndianNumber(it) }.filter { it.length == 10 }.distinct()
+        if (cleanedPhones.isEmpty()) return@withContext
+
+        val resolvedUids = newUids.filter { it.isNotBlank() }.toMutableSet()
+        try {
+            for (phone in cleanedPhones) {
+                val userSnap = firestore.collection("users").document(phone).get().await()
+                if (userSnap.exists()) {
+                    val u = userSnap.toObject(User::class.java)
+                    if (u != null && u.uid.isNotBlank()) {
+                        resolvedUids.add(u.uid)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving member UIDs", e)
+        }
+
+        try {
+            val groupRef = firestore.collection("groups").document(groupId)
+            val updates = mutableMapOf<String, Any>(
+                "memberPhones" to FieldValue.arrayUnion(*cleanedPhones.toTypedArray())
+            )
+            if (resolvedUids.isNotEmpty()) {
+                updates["memberUids"] = FieldValue.arrayUnion(*resolvedUids.toTypedArray())
+            }
+            groupRef.update(updates).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding members in Firestore", e)
+        }
+
+        val cached = dbHelper.getAllGroups().map {
+            if (it.id == groupId) {
+                it.copy(
+                    memberPhones = (it.memberPhones + cleanedPhones).distinct(),
+                    memberUids = (it.memberUids + resolvedUids).distinct()
+                )
+            } else it
+        }
+        dbHelper.saveGroups(cached)
+    }
+
+    suspend fun removeMember(groupId: String, phoneToRemove: String, uidToRemove: String?): Unit = withContext(Dispatchers.IO) {
+        val cleanPhone = PhoneNumberHelper.cleanIndianNumber(phoneToRemove)
+        try {
+            val groupRef = firestore.collection("groups").document(groupId)
+            val updates = mutableMapOf<String, Any>()
+            if (cleanPhone.isNotBlank()) {
+                updates["memberPhones"] = FieldValue.arrayRemove(cleanPhone)
+            }
+            if (!uidToRemove.isNullOrBlank()) {
+                updates["memberUids"] = FieldValue.arrayRemove(uidToRemove)
+            }
+            if (updates.isNotEmpty()) {
+                groupRef.update(updates).await()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing member in Firestore", e)
+        }
+
+        val cached = dbHelper.getAllGroups().map {
+            if (it.id == groupId) {
+                it.copy(
+                    memberPhones = it.memberPhones.filter { p -> p != cleanPhone },
+                    memberUids = it.memberUids.filter { u -> u != uidToRemove }
+                )
+            } else it
+        }
+        dbHelper.saveGroups(cached)
+    }
+
     /**
      * Local-first reactive stream: emits SQLite cached groups immediately,
      * updates live from Firestore snapshot listeners matching user phone OR uid.
@@ -95,7 +183,6 @@ class GroupRepository(
 
         val myPhone = PhoneNumberHelper.cleanIndianNumber(authRepository.getLocalPhoneNumber())
 
-        // Discrete maps per listener so that remote deletions in Firestore are captured
         var phoneGroups = emptyMap<String, Group>()
         var uidGroups = emptyMap<String, Group>()
 
@@ -112,7 +199,6 @@ class GroupRepository(
 
         val listeners = mutableListOf<ListenerRegistration>()
 
-        // Listener 1: Match by memberPhones (most reliable, survives app reinstall/UID rotation)
         if (myPhone.length == 10) {
             val phoneListener = firestore.collection("groups")
                 .whereArrayContains("memberPhones", myPhone)
@@ -127,7 +213,6 @@ class GroupRepository(
             listeners.add(phoneListener)
         }
 
-        // Listener 2: Match by memberUids
         if (currentUid.isNotBlank()) {
             val uidListener = firestore.collection("groups")
                 .whereArrayContains("memberUids", currentUid)
@@ -181,12 +266,10 @@ class GroupRepository(
 
     suspend fun deleteGroup(groupId: String): Unit = withContext(Dispatchers.IO) {
         try {
-            // Delete from Firestore
             firestore.collection("groups").document(groupId).delete().await()
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting group from Firestore", e)
         }
-        // Delete from local SQLite
         dbHelper.deleteGroup(groupId)
     }
 
