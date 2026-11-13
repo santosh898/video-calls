@@ -39,6 +39,9 @@ class WebRtcClient(
     private val _remoteVideoTracks = MutableStateFlow<Map<String, VideoTrack>>(emptyMap())
     val remoteVideoTracks: StateFlow<Map<String, VideoTrack>> = _remoteVideoTracks.asStateFlow()
 
+    // Pending remote ICE candidates queued before remoteDescription is set
+    private val pendingIceCandidates = ConcurrentHashMap<String, MutableList<IceCandidate>>()
+
     // Callbacks to notify signaling layer
     var onLocalIceCandidate: ((targetUid: String, candidate: IceCandidate) -> Unit)? = null
     var onPeerConnected: ((peerUid: String) -> Unit)? = null
@@ -120,7 +123,7 @@ class WebRtcClient(
                         videoTransceiver.sender.setTrack(track, true)
                         videoTransceiver.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
                     } else {
-                        pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+                        pc.addTransceiver(track, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, listOf("ARDAMS")))
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating video track on transceiver", e)
@@ -172,7 +175,10 @@ class WebRtcClient(
                 Log.d(TAG, "[$targetUid] onIceConnectionChange: $state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
-                    PeerConnection.IceConnectionState.COMPLETED -> onPeerConnected?.invoke(targetUid)
+                    PeerConnection.IceConnectionState.COMPLETED -> {
+                        onPeerConnected?.invoke(targetUid)
+                        localVideoTrack?.setEnabled(true)
+                    }
                     PeerConnection.IceConnectionState.DISCONNECTED,
                     PeerConnection.IceConnectionState.FAILED,
                     PeerConnection.IceConnectionState.CLOSED -> onPeerDisconnected?.invoke(targetUid)
@@ -196,7 +202,11 @@ class WebRtcClient(
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
 
             override fun onAddStream(stream: MediaStream?) {
-                Log.d(TAG, "[$targetUid] onAddStream: ${stream?.id}")
+                Log.d(TAG, "[$targetUid] onAddStream: ${stream?.id}, videoCount=${stream?.videoTracks?.size}")
+                stream?.videoTracks?.firstOrNull()?.let { track ->
+                    track.setEnabled(true)
+                    _remoteVideoTracks.value = _remoteVideoTracks.value + (targetUid to track)
+                }
             }
 
             override fun onRemoveStream(stream: MediaStream?) {
@@ -211,8 +221,9 @@ class WebRtcClient(
 
             override fun onTrack(transceiver: RtpTransceiver?) {
                 val track = transceiver?.receiver?.track()
-                Log.d(TAG, "[$targetUid] onTrack: ${track?.kind()}")
+                Log.d(TAG, "[$targetUid] onTrack: kind=${track?.kind()}, id=${track?.id()}")
                 if (track is VideoTrack) {
+                    track.setEnabled(true)
                     _remoteVideoTracks.value = _remoteVideoTracks.value + (targetUid to track)
                 }
             }
@@ -220,18 +231,17 @@ class WebRtcClient(
 
         val pc = peerConnectionFactory.createPeerConnection(rtcConfig, observer)
         if (pc != null) {
-            // Pre-allocate audio & video transceivers with SEND_RECV direction so that incoming offers
-            // match immediately to two-way media pipelines (crucial for receiver video)
+            val streamIds = listOf("ARDAMS")
             if (localAudioTrack != null) {
-                pc.addTransceiver(localAudioTrack, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+                pc.addTransceiver(localAudioTrack, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, streamIds))
             } else {
-                pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+                pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, streamIds))
             }
 
             if (localVideoTrack != null) {
-                pc.addTransceiver(localVideoTrack, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+                pc.addTransceiver(localVideoTrack, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, streamIds))
             } else {
-                pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+                pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, streamIds))
             }
             peerConnections[targetUid] = pc
         }
@@ -248,11 +258,15 @@ class WebRtcClient(
         pc.createOffer(object : SdpObserverAdapter() {
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc?.let { sdp ->
+                    val preferredOffer = SessionDescription(
+                        sdp.type,
+                        preferCodec(sdp.description, "VP8")
+                    )
                     pc.setLocalDescription(object : SdpObserverAdapter() {
                         override fun onSetSuccess() {
-                            onSdpCreated(sdp)
+                            onSdpCreated(preferredOffer)
                         }
-                    }, sdp)
+                    }, preferredOffer)
                 }
             }
         }, constraints)
@@ -262,6 +276,8 @@ class WebRtcClient(
         val pc = getOrCreatePeerConnection(targetUid) ?: return
         pc.setRemoteDescription(object : SdpObserverAdapter() {
             override fun onSetSuccess() {
+                drainRemoteCandidates(targetUid, pc)
+
                 // Ensure local tracks are attached and direction is SEND_RECV on all transceivers
                 pc.transceivers.forEach { transceiver ->
                     when (transceiver.mediaType) {
@@ -272,6 +288,11 @@ class WebRtcClient(
                         MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO -> {
                             localVideoTrack?.let { transceiver.sender.setTrack(it, true) }
                             transceiver.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+                            val track = transceiver.receiver.track()
+                            if (track is VideoTrack) {
+                                track.setEnabled(true)
+                                _remoteVideoTracks.value = _remoteVideoTracks.value + (targetUid to track)
+                            }
                         }
                     }
                 }
@@ -283,11 +304,15 @@ class WebRtcClient(
                 pc.createAnswer(object : SdpObserverAdapter() {
                     override fun onCreateSuccess(desc: SessionDescription?) {
                         desc?.let { answer ->
+                            val preferredAnswer = SessionDescription(
+                                answer.type,
+                                preferCodec(answer.description, "VP8")
+                            )
                             pc.setLocalDescription(object : SdpObserverAdapter() {
                                 override fun onSetSuccess() {
-                                    onSdpCreated(answer)
+                                    onSdpCreated(preferredAnswer)
                                 }
-                            }, answer)
+                            }, preferredAnswer)
                         }
                     }
                 }, constraints)
@@ -300,19 +325,48 @@ class WebRtcClient(
         pc.setRemoteDescription(object : SdpObserverAdapter() {
             override fun onSetSuccess() {
                 Log.d(TAG, "[$targetUid] Remote Answer Set Successfully")
+                drainRemoteCandidates(targetUid, pc)
+
+                // Extract remote video track from video transceiver
+                pc.transceivers.forEach { transceiver ->
+                    if (transceiver.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO) {
+                        val track = transceiver.receiver.track()
+                        if (track is VideoTrack) {
+                            track.setEnabled(true)
+                            _remoteVideoTracks.value = _remoteVideoTracks.value + (targetUid to track)
+                        }
+                    }
+                }
             }
         }, answerSdp)
     }
 
     fun addRemoteIceCandidate(targetUid: String, candidate: IceCandidate) {
-        val pc = peerConnections[targetUid] ?: return
-        pc.addIceCandidate(candidate)
+        val pc = peerConnections[targetUid]
+        if (pc != null && pc.remoteDescription != null) {
+            pc.addIceCandidate(candidate)
+        } else {
+            val list = pendingIceCandidates.getOrPut(targetUid) { mutableListOf() }
+            synchronized(list) {
+                list.add(candidate)
+            }
+        }
+    }
+
+    private fun drainRemoteCandidates(targetUid: String, pc: PeerConnection) {
+        val list = pendingIceCandidates.remove(targetUid) ?: return
+        synchronized(list) {
+            for (cand in list) {
+                pc.addIceCandidate(cand)
+            }
+        }
     }
 
     fun removePeer(targetUid: String) {
         try {
             peerConnections[targetUid]?.close()
             peerConnections.remove(targetUid)
+            pendingIceCandidates.remove(targetUid)
             val updated = _remoteVideoTracks.value.toMutableMap()
             updated.remove(targetUid)
             _remoteVideoTracks.value = updated
@@ -393,6 +447,7 @@ class WebRtcClient(
             } catch (e: Exception) {}
         }
         peerConnections.clear()
+        pendingIceCandidates.clear()
 
         try {
             localVideoTrack?.setEnabled(false)
@@ -418,6 +473,31 @@ class WebRtcClient(
         localAudioSource = null
     }
 
+    private fun preferCodec(sdpDescription: String, codec: String): String {
+        val lines = sdpDescription.split("\r\n").toMutableList()
+        val mLineIndex = lines.indexOfFirst { it.startsWith("m=video ") }
+        if (mLineIndex == -1) return sdpDescription
+
+        // Find payload type for codec (e.g. "a=rtpmap:96 VP8/90000")
+        val codecPattern = Regex("^a=rtpmap:(\\d+)\\s+$codec/90000", RegexOption.IGNORE_CASE)
+        val codecPayload = lines.mapNotNull { line ->
+            codecPattern.find(line)?.groupValues?.get(1)
+        }.firstOrNull() ?: return sdpDescription
+
+        val mLine = lines[mLineIndex]
+        val parts = mLine.split(" ").toMutableList()
+        if (parts.size < 4) return sdpDescription
+
+        // parts[0] is "m=video", parts[1] is port, parts[2] is protocol, parts[3..] are payloads
+        val header = parts.take(3)
+        val payloads = parts.drop(3).toMutableList()
+        if (payloads.remove(codecPayload)) {
+            payloads.add(0, codecPayload)
+            lines[mLineIndex] = (header + payloads).joinToString(" ")
+        }
+        return lines.joinToString("\r\n")
+    }
+
     companion object {
         val sharedEglBase: EglBase by lazy { EglBase.create() }
 
@@ -430,8 +510,8 @@ class WebRtcClient(
 
             val encoderFactory = DefaultVideoEncoderFactory(
                 sharedEglBase.eglBaseContext,
-                true,
-                true
+                true,  // enableIntelVp8Encoder
+                false  // enableH264HighProfile -> false for universal compatibility across chipsets
             )
             val decoderFactory = DefaultVideoDecoderFactory(sharedEglBase.eglBaseContext)
 

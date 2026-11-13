@@ -227,21 +227,22 @@ fun SingleCallScreen(
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F172A))
+        modifier = Modifier.fillMaxSize()
     ) {
         // Remote View
         if (isVideo && remoteTrack != null) {
             WebRtcSurfaceView(
                 modifier = Modifier.fillMaxSize(),
                 videoTrack = remoteTrack,
-                eglBase = rtcClient.eglBase
+                eglBase = rtcClient.eglBase,
+                isOverlay = false
             )
         } else {
             // Audio call or waiting for video view
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F172A)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -306,7 +307,8 @@ fun SingleCallScreen(
                     modifier = Modifier.fillMaxSize(),
                     videoTrack = localVideoTrack,
                     eglBase = rtcClient.eglBase,
-                    isMirror = true
+                    isMirror = true,
+                    isOverlay = true
                 )
             }
         }
