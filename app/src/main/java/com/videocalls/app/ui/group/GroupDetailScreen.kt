@@ -126,17 +126,6 @@ fun GroupDetailScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
-                },
-                actions = {
-                    if (group != null) {
-                        IconButton(onClick = { showActionDialog = true }) {
-                            Icon(
-                                imageVector = if (isCreator) Icons.Rounded.Delete else Icons.AutoMirrored.Rounded.ExitToApp,
-                                contentDescription = if (isCreator) "Delete Group" else "Leave Group",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
                 }
             )
         }
@@ -160,6 +149,8 @@ fun GroupDetailScreen(
                     .padding(paddingValues)
                     .padding(horizontal = 20.dp)
             ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Header Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
