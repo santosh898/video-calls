@@ -138,14 +138,24 @@ fun GroupCallScreen(
         leaveCallInternal()
     }
 
-    LaunchedEffect(callSession?.status) {
-        if (callSession?.status == CallStatus.ENDED) {
+    LaunchedEffect(callSession?.status, callSession?.activeParticipants) {
+        val session = callSession ?: return@LaunchedEffect
+        val remaining = session.activeParticipants
+
+        // Case 1: Status explicitly marked ENDED
+        if (session.status == CallStatus.ENDED) {
             if (!isEnded) {
                 isEnded = true
                 CallService.stop(context)
                 rtcClient.close()
                 onCallEnded()
             }
+            return@LaunchedEffect
+        }
+
+        // Case 2: Multi-party call where other participants left, leaving only 1 person
+        if (session.maxParticipantsReached >= 2 && remaining.size <= 1 && remaining.contains(currentUid)) {
+            leaveCallInternal()
         }
     }
 
@@ -205,12 +215,20 @@ fun GroupCallScreen(
                 }
             }
         }
+        // Cleanup departed peers WebRTC tracks & connections
+        val departedPeers = remoteVideoTracks.keys.filter { it !in participants }
+        for (departed in departedPeers) {
+            rtcClient.removePeer(departed)
+        }
     }
 
     DisposableEffect(Unit) {
         onDispose {
             if (!isEnded) {
                 isEnded = true
+                coroutineScope.launch {
+                    signalingRepo.leaveCall(callId, currentUid, groupId)
+                }
                 CallService.stop(context)
                 rtcClient.close()
             }

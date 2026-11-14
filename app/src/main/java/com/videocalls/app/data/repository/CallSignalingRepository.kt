@@ -218,31 +218,61 @@ class CallSignalingRepository(
     }
 
     suspend fun joinCall(callId: String, uid: String) {
-        firestore.collection("calls").document(callId)
-            .update(
-                "activeParticipants", FieldValue.arrayUnion(uid),
-                "status", CallStatus.CONNECTED.name
-            )
-            .await()
+        try {
+            val callRef = firestore.collection("calls").document(callId)
+            firestore.runTransaction { transaction ->
+                val snapshot = transaction.get(callRef)
+                val session = snapshot.toObject(CallSession::class.java) ?: return@runTransaction
+                val updatedParticipants = (session.activeParticipants + uid).distinct()
+                val newMax = maxOf(session.maxParticipantsReached, updatedParticipants.size)
+                transaction.update(
+                    callRef,
+                    mapOf(
+                        "activeParticipants" to FieldValue.arrayUnion(uid),
+                        "status" to CallStatus.CONNECTED.name,
+                        "maxParticipantsReached" to newMax
+                    )
+                )
+            }.await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error joining call $callId", e)
+        }
     }
 
     suspend fun leaveCall(callId: String, uid: String, groupId: String? = null) {
         try {
             val callRef = firestore.collection("calls").document(callId)
-            callRef.update("activeParticipants", FieldValue.arrayRemove(uid)).await()
+            firestore.runTransaction { transaction ->
+                val snapshot = transaction.get(callRef)
+                val session = snapshot.toObject(CallSession::class.java) ?: return@runTransaction
+                val remaining = session.activeParticipants.filter { it != uid }
+                val targetGroupId = groupId ?: session.groupId
 
-            val snapshot = callRef.get().await()
-            val session = snapshot.toObject(CallSession::class.java)
-            if (session != null && session.activeParticipants.isEmpty()) {
-                callRef.update("status", CallStatus.ENDED.name).await()
-                if (groupId != null) {
-                    firestore.collection("groups").document(groupId)
-                        .update("activeCallId", null)
-                        .await()
+                // Auto-close condition:
+                // 1. Nobody left in the call (0 participants).
+                // 2. OR at least 2 people had joined previously, and now only 1 (or 0) person remains.
+                val shouldEnd = remaining.isEmpty() || (session.maxParticipantsReached >= 2 && remaining.size <= 1)
+
+                if (shouldEnd) {
+                    transaction.update(
+                        callRef,
+                        mapOf(
+                            "activeParticipants" to remaining,
+                            "status" to CallStatus.ENDED.name
+                        )
+                    )
+                    if (!targetGroupId.isNullOrBlank()) {
+                        transaction.update(
+                            firestore.collection("groups").document(targetGroupId),
+                            "activeCallId", null
+                        )
+                    }
+                } else {
+                    transaction.update(callRef, "activeParticipants", remaining)
                 }
-            }
+            }.await()
         } catch (e: Exception) {
-            Log.e(TAG, "Error leaving call", e)
+            Log.e(TAG, "Error leaving call $callId", e)
         }
     }
 

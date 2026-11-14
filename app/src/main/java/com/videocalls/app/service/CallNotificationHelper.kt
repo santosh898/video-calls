@@ -79,20 +79,38 @@ object CallNotificationHelper {
         val title = if (isGroupCall) "Group Video Call" else (if (callType == CallType.VIDEO) "Incoming Video Call" else "Incoming Audio Call")
         val content = if (callerPhone.isNotBlank()) "$callerName ($callerPhone)" else callerName
 
-        val notification = NotificationCompat.Builder(context, VideoCallApp.CHANNEL_INCOMING_CALLS)
+        val callerPerson = androidx.core.app.Person.Builder()
+            .setName(callerName)
+            .setImportant(true)
+            .build()
+
+        val notificationBuilder = NotificationCompat.Builder(context, VideoCallApp.CHANNEL_INCOMING_CALLS)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setAutoCancel(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
             .setSound(soundUri)
             .setVibrate(longArrayOf(0, 1000, 1000, 1000, 1000))
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .addAction(android.R.drawable.ic_menu_call, "Accept", acceptPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
-            .build()
+
+        // Native Android CallStyle for standard Answer & Decline buttons
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            notificationBuilder.setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    callerPerson,
+                    declinePendingIntent,
+                    acceptPendingIntent
+                )
+            )
+        }
+
+        val notification = notificationBuilder.build()
 
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager

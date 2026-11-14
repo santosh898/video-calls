@@ -50,11 +50,6 @@ fun IncomingCallScreen(
     val coroutineScope = rememberCoroutineScope()
     val isVideo = callType == "VIDEO"
 
-    // Cancel incoming notification on screen display
-    LaunchedEffect(callId) {
-        CallNotificationHelper.cancelNotification(context, callId)
-    }
-
     // Play in-app ringtone and vibrate while ringing
     val ringtone = remember {
         try {
