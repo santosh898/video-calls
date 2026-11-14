@@ -50,49 +50,10 @@ fun IncomingCallScreen(
     val coroutineScope = rememberCoroutineScope()
     val isVideo = callType == "VIDEO"
 
-    // Play in-app ringtone and vibrate while ringing
-    val ringtone = remember {
-        try {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            RingtoneManager.getRingtone(context, uri).apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    isLooping = true
-                }
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    val vibrator = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            vm?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-    }
-
-    DisposableEffect(Unit) {
-        try {
-            ringtone?.play()
-            val pattern = longArrayOf(0, 1000, 1000, 1000, 1000)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, 0)
-            }
-        } catch (e: Exception) {
-            Log.e("IncomingCallScreen", "Error playing ringtone", e)
-        }
-
+    // Cleanup notification when screen is disposed (call answered or rejected)
+    DisposableEffect(callId) {
         onDispose {
-            try {
-                ringtone?.stop()
-                vibrator?.cancel()
-            } catch (e: Exception) {}
+            CallNotificationHelper.cancelNotification(context, callId)
         }
     }
 

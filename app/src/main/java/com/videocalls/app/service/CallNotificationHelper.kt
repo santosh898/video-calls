@@ -17,6 +17,9 @@ object CallNotificationHelper {
 
     private const val TAG = "CallNotificationHelper"
 
+    @Volatile
+    private var activeCallNotificationId: String? = null
+
     fun showIncomingCallNotification(
         context: Context,
         callId: String,
@@ -26,6 +29,12 @@ object CallNotificationHelper {
         isGroupCall: Boolean,
         groupId: String?
     ) {
+        if (activeCallNotificationId == callId) {
+            // Already active and alerting for this call; do not re-post or restart ringtone
+            return
+        }
+        activeCallNotificationId = callId
+
         val fullScreenIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_NAVIGATE_TO, "incoming_call")
@@ -96,10 +105,9 @@ object CallNotificationHelper {
             .setVibrate(longArrayOf(0, 1000, 1000, 1000, 1000))
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
-            .addAction(android.R.drawable.ic_menu_call, "Accept", acceptPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
 
-        // Native Android CallStyle for standard Answer & Decline buttons
+        // Android 12+ (API 31+) native CallStyle generates dedicated Answer & Decline buttons.
+        // For older Android versions, fallback to standard notification actions.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             notificationBuilder.setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(
@@ -108,6 +116,10 @@ object CallNotificationHelper {
                     acceptPendingIntent
                 )
             )
+        } else {
+            notificationBuilder
+                .addAction(android.R.drawable.ic_menu_call, "Accept", acceptPendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
         }
 
         val notification = notificationBuilder.build()
@@ -132,6 +144,9 @@ object CallNotificationHelper {
     }
 
     fun cancelNotification(context: Context, callId: String) {
+        if (activeCallNotificationId == callId) {
+            activeCallNotificationId = null
+        }
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         nm?.cancel(callId.hashCode())
     }
