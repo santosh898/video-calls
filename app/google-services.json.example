@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1013210045725",
+    "firebase_url": "https://my-sandbox-f8387-default-rtdb.firebaseio.com",
+    "project_id": "my-sandbox-f8387",
+    "storage_bucket": "my-sandbox-f8387.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1013210045725:android:87706a297129a50a7915f4",
+        "android_client_info": {
+          "package_name": "com.videocalls.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_FIREBASE_API_KEY_HERE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
