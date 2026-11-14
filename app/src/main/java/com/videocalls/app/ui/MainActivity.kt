@@ -1,19 +1,24 @@
 package com.videocalls.app.ui
 
+import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
 import com.videocalls.app.data.model.CallStatus
@@ -64,6 +69,27 @@ class MainActivity : ComponentActivity() {
                     val currentUser by authRepository.authStateFlow().collectAsState(initial = auth.currentUser)
                     val isRegistered = authRepository.isSimRegistered()
                     val startDest = if (isRegistered) Screen.Home.route else Screen.SimIdentity.route
+
+                    // Explicit runtime permission request for Android 13+ (API 33+)
+                    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestPermission()
+                    ) { isGranted ->
+                        if (isGranted && authRepository.isSimRegistered()) {
+                            com.videocalls.app.service.CallListenerService.start(this@MainActivity)
+                        }
+                    }
+
+                    LaunchedEffect(Unit) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            val hasNotif = ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (!hasNotif) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                    }
 
                     AppNavGraph(
                         navController = navController,
