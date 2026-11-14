@@ -17,6 +17,8 @@ data class CallSession(
     val callType: CallType = CallType.VIDEO,
     val status: CallStatus = CallStatus.RINGING,
     val activeParticipants: List<String> = emptyList(),
+    val targetPhones: List<String> = emptyList(),
+    val targetUids: List<String> = emptyList(),
     @ServerTimestamp
     val createdAt: Date? = null
 )

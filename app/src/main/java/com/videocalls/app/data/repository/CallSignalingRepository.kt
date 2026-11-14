@@ -58,6 +58,20 @@ class CallSignalingRepository(
         callType: CallType
     ): String {
         val cleanPhone = PhoneNumberHelper.cleanIndianNumber(callerPhone)
+
+        // Fetch group to determine target phones and UIDs for incoming ring
+        var targetPhones = emptyList<String>()
+        var targetUids = emptyList<String>()
+        try {
+            val groupDoc = firestore.collection("groups").document(groupId).get().await()
+            val memberPhones = (groupDoc.get("memberPhones") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val memberUids = (groupDoc.get("memberUids") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            targetPhones = memberPhones.map { PhoneNumberHelper.cleanIndianNumber(it) }.filter { it.isNotBlank() && it != cleanPhone }
+            targetUids = memberUids.filter { it.isNotBlank() && it != callerId }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching group members for call signaling: $groupId", e)
+        }
+
         val callRef = firestore.collection("calls").document()
         val session = CallSession(
             id = callRef.id,
@@ -68,7 +82,9 @@ class CallSignalingRepository(
             isGroupCall = true,
             callType = callType,
             status = CallStatus.RINGING,
-            activeParticipants = listOf(callerId)
+            activeParticipants = listOf(callerId),
+            targetPhones = targetPhones,
+            targetUids = targetUids
         )
         callRef.set(session).await()
 
@@ -93,37 +109,102 @@ class CallSignalingRepository(
     }
 
     /**
-     * Listens in real-time for incoming calls directed to this phone number (or UID fallback)
+     * Listens in real-time for incoming calls directed to this user:
+     * 1. 1-to-1 calls targeting phone or UID
+     * 2. Group calls targeting phone (targetPhones) or UID (targetUids)
      */
     fun observeIncomingCalls(receiverPhone: String, receiverUid: String? = null): Flow<CallSession?> = callbackFlow {
         val cleanPhone = PhoneNumberHelper.cleanIndianNumber(receiverPhone)
-        val query = if (cleanPhone.length == 10) {
-            firestore.collection("calls")
-                .whereEqualTo("receiverPhone", cleanPhone)
-                .whereEqualTo("status", CallStatus.RINGING.name)
-        } else if (!receiverUid.isNullOrBlank()) {
-            firestore.collection("calls")
-                .whereEqualTo("receiverId", receiverUid)
-                .whereEqualTo("status", CallStatus.RINGING.name)
-        } else {
-            null
+        val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+        val activeIncomingCalls = java.util.concurrent.ConcurrentHashMap<String, CallSession>()
+
+        fun emitLatestRinging() {
+            val ringingCall = activeIncomingCalls.values
+                .filter { it.status == CallStatus.RINGING }
+                .maxByOrNull { it.createdAt?.time ?: 0L }
+            trySend(ringingCall)
         }
 
-        if (query == null) {
-            trySend(null)
-            awaitClose {}
-            return@callbackFlow
-        }
-
-        val listener = query.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e(TAG, "Error observing incoming calls", error)
-                return@addSnapshotListener
+        fun handleSnapshot(snapshot: com.google.firebase.firestore.QuerySnapshot?, tag: String) {
+            if (snapshot == null) return
+            for (change in snapshot.documentChanges) {
+                val call = change.document.toObject(CallSession::class.java)
+                when (change.type) {
+                    com.google.firebase.firestore.DocumentChange.Type.ADDED,
+                    com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
+                        if (call.status == CallStatus.RINGING) {
+                            activeIncomingCalls[call.id] = call
+                        } else {
+                            activeIncomingCalls.remove(call.id)
+                        }
+                    }
+                    com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
+                        activeIncomingCalls.remove(call.id)
+                    }
+                }
             }
-            val call = snapshot?.documents?.firstOrNull()?.toObject(CallSession::class.java)
-            trySend(call)
+            emitLatestRinging()
         }
-        awaitClose { listener.remove() }
+
+        if (cleanPhone.length == 10) {
+            // Direct 1-on-1 incoming calls
+            val lDirectPhone = firestore.collection("calls")
+                .whereEqualTo("receiverPhone", cleanPhone)
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.e(TAG, "Error in direct phone incoming listener", err)
+                        return@addSnapshotListener
+                    }
+                    handleSnapshot(snap, "direct-phone")
+                }
+            listeners.add(lDirectPhone)
+
+            // Group incoming calls
+            val lGroupPhone = firestore.collection("calls")
+                .whereArrayContains("targetPhones", cleanPhone)
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.e(TAG, "Error in group phone incoming listener", err)
+                        return@addSnapshotListener
+                    }
+                    handleSnapshot(snap, "group-phone")
+                }
+            listeners.add(lGroupPhone)
+        }
+
+        if (!receiverUid.isNullOrBlank()) {
+            val lDirectUid = firestore.collection("calls")
+                .whereEqualTo("receiverId", receiverUid)
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.e(TAG, "Error in direct uid incoming listener", err)
+                        return@addSnapshotListener
+                    }
+                    handleSnapshot(snap, "direct-uid")
+                }
+            listeners.add(lDirectUid)
+
+            val lGroupUid = firestore.collection("calls")
+                .whereArrayContains("targetUids", receiverUid)
+                .addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        Log.e(TAG, "Error in group uid incoming listener", err)
+                        return@addSnapshotListener
+                    }
+                    handleSnapshot(snap, "group-uid")
+                }
+            listeners.add(lGroupUid)
+        }
+
+        if (listeners.isEmpty()) {
+            trySend(null)
+        }
+
+        awaitClose {
+            listeners.forEach { it.remove() }
+            listeners.clear()
+            activeIncomingCalls.clear()
+        }
     }
 
     suspend fun updateCallStatus(callId: String, status: CallStatus) {

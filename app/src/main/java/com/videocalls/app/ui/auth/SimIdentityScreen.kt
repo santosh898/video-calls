@@ -58,6 +58,7 @@ fun SimIdentityScreen(
                     displayName = name.ifBlank { "User" }
                 )
                 isProcessing = false
+                com.videocalls.app.service.CallListenerService.start(context)
                 onIdentityBound()
             } catch (e: Exception) {
                 isProcessing = false

@@ -62,12 +62,12 @@ object CallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Decline Action Intent
-        val declineIntent = Intent(context, MainActivity::class.java).apply {
-            action = MainActivity.ACTION_DECLINE_CALL
+        // Decline Action Intent (handled in background without opening app UI)
+        val declineIntent = Intent(context, CallNotificationReceiver::class.java).apply {
+            action = CallNotificationReceiver.ACTION_DECLINE_CALL
             putExtra("callId", callId)
         }
-        val declinePendingIntent = PendingIntent.getActivity(
+        val declinePendingIntent = PendingIntent.getBroadcast(
             context,
             (callId + "_decline").hashCode(),
             declineIntent,
@@ -93,6 +93,18 @@ object CallNotificationHelper {
             .addAction(android.R.drawable.ic_menu_call, "Accept", acceptPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePendingIntent)
             .build()
+
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            @Suppress("DEPRECATION")
+            val screenWakeLock = pm?.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "VideoCalls:IncomingCallWakeUp"
+            )
+            screenWakeLock?.acquire(10_000L)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to wake up screen for incoming call", e)
+        }
 
         try {
             NotificationManagerCompat.from(context).notify(callId.hashCode(), notification)

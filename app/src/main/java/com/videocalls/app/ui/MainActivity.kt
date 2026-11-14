@@ -29,10 +29,12 @@ class MainActivity : ComponentActivity() {
     private val auth by lazy { FirebaseAuth.getInstance() }
     private val authRepository by lazy { com.videocalls.app.data.repository.AuthRepository(this) }
     private val signalingRepo by lazy { CallSignalingRepository() }
+    private var currentIntentState by mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        currentIntentState = intent
 
         // Turn screen on and show over lockscreen for call alerts
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -47,6 +49,10 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         handleIntent(intent)
+
+        if (authRepository.isSimRegistered()) {
+            com.videocalls.app.service.CallListenerService.start(this)
+        }
 
         setContent {
             VideoCallsTheme {
@@ -77,10 +83,13 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(myPhone, activeUid) {
                         signalingRepo.observeIncomingCalls(receiverPhone = myPhone, receiverUid = activeUid).collect { incomingCall ->
                             if (incomingCall != null && incomingCall.status == CallStatus.RINGING) {
+                                val callDisplayName = incomingCall.callerName.ifBlank {
+                                    if (incomingCall.isGroupCall) "Group Call" else "Caller"
+                                }
                                 CallNotificationHelper.showIncomingCallNotification(
                                     context = this@MainActivity,
                                     callId = incomingCall.id,
-                                    callerName = incomingCall.callerName.ifBlank { "Caller" },
+                                    callerName = callDisplayName,
                                     callerPhone = incomingCall.callerPhone,
                                     callType = incomingCall.callType,
                                     isGroupCall = incomingCall.isGroupCall,
@@ -91,7 +100,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate(
                                         Screen.IncomingCall.createRoute(
                                             callId = incomingCall.id,
-                                            callerName = incomingCall.callerName.ifBlank { "Caller" },
+                                            callerName = callDisplayName,
                                             callerPhone = incomingCall.callerPhone,
                                             callType = incomingCall.callType.name,
                                             isGroupCall = incomingCall.isGroupCall,
@@ -104,8 +113,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Handle intent navigations (e.g. from notifications)
-                    LaunchedEffect(intent) {
-                        checkIntentNavigation { route ->
+                    LaunchedEffect(currentIntentState) {
+                        checkIntentNavigation(currentIntentState) { route ->
                             navController.navigate(route)
                         }
                     }
@@ -118,6 +127,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+        currentIntentState = intent
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -136,18 +146,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkIntentNavigation(navigate: (String) -> Unit) {
-        val navTo = intent?.getStringExtra(EXTRA_NAVIGATE_TO)
-        val callId = intent?.getStringExtra("callId") ?: return
+    private fun checkIntentNavigation(targetIntent: Intent?, navigate: (String) -> Unit) {
+        if (targetIntent == null) return
+        val navTo = targetIntent.getStringExtra(EXTRA_NAVIGATE_TO)
+        val callId = targetIntent.getStringExtra("callId") ?: return
 
-        if (navTo == "incoming_call" || intent?.action == ACTION_ACCEPT_CALL) {
-            val callerName = intent?.getStringExtra("callerName") ?: "Caller"
-            val callerPhone = intent?.getStringExtra("callerPhone") ?: ""
-            val callType = intent?.getStringExtra("callType") ?: "VIDEO"
-            val isGroupCall = intent?.getBooleanExtra("isGroupCall", false) ?: false
-            val groupId = intent?.getStringExtra("groupId")
+        if (navTo == "incoming_call" || targetIntent.action == ACTION_ACCEPT_CALL) {
+            val callerName = targetIntent.getStringExtra("callerName") ?: "Caller"
+            val callerPhone = targetIntent.getStringExtra("callerPhone") ?: ""
+            val callType = targetIntent.getStringExtra("callType") ?: "VIDEO"
+            val isGroupCall = targetIntent.getBooleanExtra("isGroupCall", false)
+            val groupId = targetIntent.getStringExtra("groupId")
 
-            if (intent?.action == ACTION_ACCEPT_CALL) {
+            targetIntent.removeExtra(EXTRA_NAVIGATE_TO)
+            targetIntent.removeExtra("callId")
+
+            if (targetIntent.action == ACTION_ACCEPT_CALL) {
                 if (isGroupCall && !groupId.isNullOrBlank()) {
                     navigate(Screen.GroupCall.createRoute(callId, groupId, callerName, callType == "VIDEO"))
                 } else {

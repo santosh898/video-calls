@@ -155,10 +155,12 @@ fun AppNavGraph(
                 onNavigateBack = { navController.popBackStack() },
                 onStartGroupCall = { gId, gName, isVideo ->
                     coroutineScope.launch {
+                        val myName = authRepo.getLocalDisplayName().ifBlank { "User" }
+                        val myPhone = authRepo.getLocalPhoneNumber()
                         val callId = signalingRepo.createGroupCall(
                             callerId = uid,
-                            callerName = "Me",
-                            callerPhone = "",
+                            callerName = myName,
+                            callerPhone = myPhone,
                             groupId = gId,
                             callType = if (isVideo) CallType.VIDEO else CallType.AUDIO
                         )

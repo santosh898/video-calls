@@ -16,6 +16,11 @@ class VideoCallApp : Application() {
         instance = this
         createNotificationChannels()
         LiveSyncManager.getInstance(this).startLiveSync()
+
+        val authRepo = com.videocalls.app.data.repository.AuthRepository(this)
+        if (authRepo.isSimRegistered()) {
+            com.videocalls.app.service.CallListenerService.start(this)
+        }
     }
 
     private fun createNotificationChannels() {
@@ -51,14 +56,26 @@ class VideoCallApp : Application() {
                 setShowBadge(false)
             }
 
+            // Channel for Background Call Listener (Silent, minimal)
+            val listenerChannel = NotificationChannel(
+                CHANNEL_LISTENER,
+                "Background Call Service",
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Keeps connection active for incoming calls"
+                setShowBadge(false)
+            }
+
             notificationManager.createNotificationChannel(incomingChannel)
             notificationManager.createNotificationChannel(ongoingChannel)
+            notificationManager.createNotificationChannel(listenerChannel)
         }
     }
 
     companion object {
         const val CHANNEL_INCOMING_CALLS = "incoming_calls_channel"
         const val CHANNEL_ONGOING_CALLS = "ongoing_calls_channel"
+        const val CHANNEL_LISTENER = "background_listener_channel"
 
         lateinit var instance: VideoCallApp
             private set
