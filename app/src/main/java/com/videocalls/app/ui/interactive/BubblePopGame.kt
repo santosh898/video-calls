@@ -94,6 +94,7 @@ class BubbleGameManager(
             if (dist <= b.radius * 1.3f) {
                 bubbles.removeAt(i)
                 popCount++
+                KidsSoundManager.playPop()
                 onBubblePopped(b.id, bx, by)
                 return true
             }
@@ -106,6 +107,7 @@ class BubbleGameManager(
         if (index != -1) {
             val b = bubbles.removeAt(index)
             popCount++
+            KidsSoundManager.playPop()
             onBubblePopped(b.id, b.x * width, b.y * height)
         }
     }

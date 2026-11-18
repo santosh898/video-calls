@@ -113,6 +113,7 @@ fun ParticleOverlay(
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { offset ->
+                    KidsSoundManager.playSparkle()
                     particleManager.burst(offset.x, offset.y, 16)
                     onTap?.invoke(offset)
                 }

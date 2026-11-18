@@ -43,6 +43,7 @@ fun PeekABooOverlay(
     LaunchedEffect(isOpen) {
         if (isOpen) {
             showBanner = true
+            KidsSoundManager.playPeekABoo()
             kotlinx.coroutines.delay(2200L)
             showBanner = false
         }
