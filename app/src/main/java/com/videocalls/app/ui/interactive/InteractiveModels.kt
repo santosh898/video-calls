@@ -19,11 +19,6 @@ enum class InteractiveGameType(val displayName: String, val icon: String) {
     DOODLE("Magic Draw", "🎨")
 }
 
-enum class FilterTarget {
-    REMOTE, // Apply to incoming video (e.g. grandpa/grandma)
-    LOCAL   // Apply to self video
-}
-
 data class NormalizedFace(
     val bounds: RectF, // 0f..1f
     val leftEye: PointF? = null,

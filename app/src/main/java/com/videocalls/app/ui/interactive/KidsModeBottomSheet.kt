@@ -7,7 +7,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,8 +24,6 @@ fun KidsModeBottomSheet(
     onFilterSelected: (InteractiveFilterType) -> Unit,
     currentGame: InteractiveGameType,
     onGameSelected: (InteractiveGameType) -> Unit,
-    target: FilterTarget,
-    onTargetChanged: (FilterTarget) -> Unit,
     sparklesEnabled: Boolean,
     onSparklesToggled: (Boolean) -> Unit,
     toddlerLockEnabled: Boolean,
@@ -58,38 +55,9 @@ fun KidsModeBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 1. Target Selector: "Apply To:"
-            Text(
-                text = "Apply Filter To:",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                TargetChoiceChip(
-                    title = "Grandparent / Friend (Incoming)",
-                    icon = "📺",
-                    isSelected = target == FilterTarget.REMOTE,
-                    onClick = { onTargetChanged(FilterTarget.REMOTE) },
-                    modifier = Modifier.weight(1f)
-                )
-                TargetChoiceChip(
-                    title = "Me (Self)",
-                    icon = "🤳",
-                    isSelected = target == FilterTarget.LOCAL,
-                    onClick = { onTargetChanged(FilterTarget.LOCAL) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Interactive Face Filters
+            // 1. Interactive Face Filters (Global by default)
             Text(
                 text = "Face Filters:",
                 style = MaterialTheme.typography.labelLarge,
@@ -115,7 +83,7 @@ fun KidsModeBottomSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 3. Toddler Games
+            // 2. Toddler Games
             Text(
                 text = "Play Games Together:",
                 style = MaterialTheme.typography.labelLarge,
@@ -141,7 +109,7 @@ fun KidsModeBottomSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 4. Sparkles & Toddler Lock Options
+            // 3. Sparkles & Toddler Lock Options
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -209,37 +177,6 @@ fun KidsModeBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-private fun TargetChoiceChip(
-    title: String,
-    icon: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
-        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF38BDF8)) else null,
-        modifier = modifier.clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text(text = icon, fontSize = 20.sp)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = if (isSelected) Color(0xFF38BDF8) else Color.White
-            )
         }
     }
 }

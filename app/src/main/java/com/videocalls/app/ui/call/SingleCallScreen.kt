@@ -137,15 +137,13 @@ fun SingleCallScreen(
     // Interactive & Toddler Features
     var currentFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
     var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
-    var filterTarget by remember { mutableStateOf(FilterTarget.REMOTE) }
     var sparklesEnabled by remember { mutableStateOf(true) }
     var toddlerLockEnabled by remember { mutableStateOf(false) }
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
 
-    // Mirrored Filter State from Remote Peer
+    // Mirrored Filter Applied by Remote Caller on Me
     var remoteAppliedFilterOnMe by remember { mutableStateOf(InteractiveFilterType.NONE) }
-    var peerSelfFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
     var contextNotificationMessage by remember { mutableStateOf<String?>(null) }
 
     var screenWidth by remember { mutableFloatStateOf(1080f) }
@@ -165,11 +163,9 @@ fun SingleCallScreen(
     val pipFaceTracker = remember { FaceTracker() }
     val pipDetectedFace by pipFaceTracker.detectedFace.collectAsState()
 
-    fun sendFilterSync(filter: InteractiveFilterType, target: FilterTarget) {
-        val targetType = if (target == FilterTarget.REMOTE) "RECEIVER" else "SENDER"
+    fun sendFeedFilter(filter: InteractiveFilterType) {
         val msg = JSONObject().apply {
-            put("type", "FILTER_SYNC")
-            put("target", targetType)
+            put("type", "SET_FEED_FILTER")
             put("filter", filter.name)
         }.toString()
         rtcClient.sendDataMessage(null, msg)
@@ -297,22 +293,17 @@ fun SingleCallScreen(
             try {
                 val json = JSONObject(message)
                 when (json.optString("type")) {
-                    "FILTER_SYNC" -> {
-                        val targetType = json.optString("target")
+                    "SET_FEED_FILTER", "FILTER_SYNC" -> {
                         val filterName = json.optString("filter")
                         val filter = try {
                             InteractiveFilterType.valueOf(filterName)
                         } catch (_: Exception) {
                             InteractiveFilterType.NONE
                         }
-                        if (targetType == "RECEIVER") {
-                            remoteAppliedFilterOnMe = filter
-                            if (filter != InteractiveFilterType.NONE) {
-                                contextNotificationMessage = "${filter.icon} $targetName gave you ${filter.displayName} filter!"
-                                KidsSoundManager.playSparkle()
-                            }
-                        } else {
-                            peerSelfFilter = filter
+                        remoteAppliedFilterOnMe = filter
+                        if (filter != InteractiveFilterType.NONE) {
+                            contextNotificationMessage = "${filter.icon} $targetName gave you ${filter.displayName} filter!"
+                            KidsSoundManager.playSparkle()
                         }
                     }
                     "GAME_SYNC" -> {
@@ -411,17 +402,8 @@ fun SingleCallScreen(
 
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
 
-    val activeMainFilter = if (filterTarget == FilterTarget.REMOTE && currentFilter != InteractiveFilterType.NONE) {
-        currentFilter
-    } else {
-        peerSelfFilter
-    }
-
-    val activePipFilter = if (filterTarget == FilterTarget.LOCAL && currentFilter != InteractiveFilterType.NONE) {
-        currentFilter
-    } else {
-        remoteAppliedFilterOnMe
-    }
+    val activeMainFilter = currentFilter
+    val activePipFilter = remoteAppliedFilterOnMe
 
     LaunchedEffect(activeMainFilter, remoteTrack) {
         if (activeMainFilter == InteractiveFilterType.NONE) {
@@ -757,17 +739,12 @@ fun SingleCallScreen(
                 currentFilter = currentFilter,
                 onFilterSelected = {
                     currentFilter = it
-                    sendFilterSync(it, filterTarget)
+                    sendFeedFilter(it)
                 },
                 currentGame = currentGame,
                 onGameSelected = {
                     currentGame = it
                     sendGameSync(it)
-                },
-                target = filterTarget,
-                onTargetChanged = {
-                    filterTarget = it
-                    sendFilterSync(currentFilter, it)
                 },
                 sparklesEnabled = sparklesEnabled,
                 onSparklesToggled = { sparklesEnabled = it },
