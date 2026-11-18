@@ -96,7 +96,8 @@ fun ParticleOverlay(
     modifier: Modifier = Modifier,
     particleManager: ParticleManager,
     enabled: Boolean = true,
-    onTap: ((Offset) -> Unit)? = null
+    onTap: ((Offset) -> Unit)? = null,
+    onTapBurst: ((normX: Float, normY: Float) -> Unit)? = null
 ) {
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
@@ -116,6 +117,12 @@ fun ParticleOverlay(
                     KidsSoundManager.playSparkle()
                     particleManager.burst(offset.x, offset.y, 16)
                     onTap?.invoke(offset)
+                    if (size.width > 0 && size.height > 0) {
+                        onTapBurst?.invoke(
+                            (offset.x / size.width.toFloat()).coerceIn(0f, 1f),
+                            (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                        )
+                    }
                 }
             }
             .pointerInput(enabled) {

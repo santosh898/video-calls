@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -142,9 +143,45 @@ fun SingleCallScreen(
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
 
+    // Mirrored Filter State from Remote Peer
+    var remoteAppliedFilterOnMe by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    var peerSelfFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    var contextNotificationMessage by remember { mutableStateOf<String?>(null) }
+
+    var screenWidth by remember { mutableFloatStateOf(1080f) }
+    var screenHeight by remember { mutableFloatStateOf(1920f) }
+
+    LaunchedEffect(contextNotificationMessage) {
+        if (contextNotificationMessage != null) {
+            delay(3500L)
+            contextNotificationMessage = null
+        }
+    }
+
     val particleManager = remember { ParticleManager() }
     val faceTracker = remember { FaceTracker() }
     val detectedFace by faceTracker.detectedFace.collectAsState()
+
+    val pipFaceTracker = remember { FaceTracker() }
+    val pipDetectedFace by pipFaceTracker.detectedFace.collectAsState()
+
+    fun sendFilterSync(filter: InteractiveFilterType, target: FilterTarget) {
+        val targetType = if (target == FilterTarget.REMOTE) "RECEIVER" else "SENDER"
+        val msg = JSONObject().apply {
+            put("type", "FILTER_SYNC")
+            put("target", targetType)
+            put("filter", filter.name)
+        }.toString()
+        rtcClient.sendDataMessage(null, msg)
+    }
+
+    fun sendGameSync(game: InteractiveGameType) {
+        val msg = JSONObject().apply {
+            put("type", "GAME_SYNC")
+            put("game", game.name)
+        }.toString()
+        rtcClient.sendDataMessage(null, msg)
+    }
 
     val bubbleManager = remember {
         BubbleGameManager { id, _, _ ->
@@ -205,6 +242,7 @@ fun SingleCallScreen(
             signalingRepo.updateCallStatus(callId, CallStatus.ENDED)
             CallService.stop(context)
             faceTracker.release()
+            pipFaceTracker.release()
             rtcClient.close()
             onCallEnded()
         }
@@ -259,9 +297,42 @@ fun SingleCallScreen(
             try {
                 val json = JSONObject(message)
                 when (json.optString("type")) {
+                    "FILTER_SYNC" -> {
+                        val targetType = json.optString("target")
+                        val filterName = json.optString("filter")
+                        val filter = try {
+                            InteractiveFilterType.valueOf(filterName)
+                        } catch (_: Exception) {
+                            InteractiveFilterType.NONE
+                        }
+                        if (targetType == "RECEIVER") {
+                            remoteAppliedFilterOnMe = filter
+                            if (filter != InteractiveFilterType.NONE) {
+                                contextNotificationMessage = "${filter.icon} $targetName gave you ${filter.displayName} filter!"
+                                KidsSoundManager.playSparkle()
+                            }
+                        } else {
+                            peerSelfFilter = filter
+                        }
+                    }
+                    "GAME_SYNC" -> {
+                        val gameName = json.optString("game")
+                        val game = try {
+                            InteractiveGameType.valueOf(gameName)
+                        } catch (_: Exception) {
+                            InteractiveGameType.NONE
+                        }
+                        currentGame = game
+                    }
+                    "SPARKLE_BURST" -> {
+                        val x = json.optDouble("x", 0.5).toFloat()
+                        val y = json.optDouble("y", 0.5).toFloat()
+                        particleManager.burst(x * screenWidth, y * screenHeight, 18)
+                        KidsSoundManager.playSparkle()
+                    }
                     "BUBBLE_POP" -> {
                         val id = json.getInt("id")
-                        bubbleManager.popRemoteBubble(id, 1080f, 1920f)
+                        bubbleManager.popRemoteBubble(id, screenWidth, screenHeight)
                     }
                     "PEEK_A_BOO" -> {
                         isPeekABooOpen = json.getBoolean("isOpen")
@@ -329,6 +400,7 @@ fun SingleCallScreen(
     DisposableEffect(Unit) {
         onDispose {
             faceTracker.release()
+            pipFaceTracker.release()
             if (!isEnded) {
                 isEnded = true
                 CallService.stop(context)
@@ -339,21 +411,43 @@ fun SingleCallScreen(
 
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
 
-    LaunchedEffect(currentFilter, filterTarget, remoteTrack, localVideoTrack) {
-        if (currentFilter == InteractiveFilterType.NONE) {
+    val activeMainFilter = if (filterTarget == FilterTarget.REMOTE && currentFilter != InteractiveFilterType.NONE) {
+        currentFilter
+    } else {
+        peerSelfFilter
+    }
+
+    val activePipFilter = if (filterTarget == FilterTarget.LOCAL && currentFilter != InteractiveFilterType.NONE) {
+        currentFilter
+    } else {
+        remoteAppliedFilterOnMe
+    }
+
+    LaunchedEffect(activeMainFilter, remoteTrack) {
+        if (activeMainFilter == InteractiveFilterType.NONE) {
             faceTracker.detach()
         } else {
-            if (filterTarget == FilterTarget.REMOTE) {
-                faceTracker.attach(remoteTrack, mirror = false)
-            } else {
-                faceTracker.attach(localVideoTrack, mirror = true)
-            }
+            faceTracker.attach(remoteTrack, mirror = false)
+        }
+    }
+
+    LaunchedEffect(activePipFilter, localVideoTrack) {
+        if (activePipFilter == InteractiveFilterType.NONE) {
+            pipFaceTracker.detach()
+        } else {
+            pipFaceTracker.attach(localVideoTrack, mirror = true)
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { size ->
+                if (size.width > 0 && size.height > 0) {
+                    screenWidth = size.width.toFloat()
+                    screenHeight = size.height.toFloat()
+                }
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -427,6 +521,30 @@ fun SingleCallScreen(
             }
         }
 
+        // Context Notification Banner when peer applies filter on this device
+        AnimatedVisibility(
+            visible = contextNotificationMessage != null,
+            enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { -it },
+            exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 70.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF0284C7).copy(alpha = 0.95f),
+                shadowElevation = 8.dp
+            ) {
+                Text(
+                    text = contextNotificationMessage ?: "",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                )
+            }
+        }
+
         // Local Preview PIP in top right (Video only)
         if (isVideo && isVideoEnabled && localVideoTrack != null) {
             Card(
@@ -438,19 +556,25 @@ fun SingleCallScreen(
                 shape = RoundedCornerShape(16.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                WebRtcSurfaceView(
-                    modifier = Modifier.fillMaxSize(),
-                    videoTrack = localVideoTrack,
-                    eglBase = rtcClient.eglBase,
-                    isMirror = true,
-                    isOverlay = true
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    WebRtcSurfaceView(
+                        modifier = Modifier.fillMaxSize(),
+                        videoTrack = localVideoTrack,
+                        eglBase = rtcClient.eglBase,
+                        isMirror = true,
+                        isOverlay = true
+                    )
+                    FaceFiltersOverlay(
+                        filterType = activePipFilter,
+                        face = pipDetectedFace
+                    )
+                }
             }
         }
 
-        // Interactive Face Filters Overlay
+        // Interactive Face Filters Overlay on Main Video
         FaceFiltersOverlay(
-            filterType = currentFilter,
+            filterType = activeMainFilter,
             face = detectedFace
         )
 
@@ -485,7 +609,15 @@ fun SingleCallScreen(
         // Touch Sparkles Particle Overlay
         ParticleOverlay(
             particleManager = particleManager,
-            enabled = sparklesEnabled
+            enabled = sparklesEnabled,
+            onTapBurst = { normX, normY ->
+                val msg = JSONObject().apply {
+                    put("type", "SPARKLE_BURST")
+                    put("x", normX.toDouble())
+                    put("y", normY.toDouble())
+                }.toString()
+                rtcClient.sendDataMessage(null, msg)
+            }
         )
 
         // Bottom Controls Bar
@@ -623,11 +755,20 @@ fun SingleCallScreen(
             KidsModeBottomSheet(
                 onDismissRequest = { showKidsSheet = false },
                 currentFilter = currentFilter,
-                onFilterSelected = { currentFilter = it },
+                onFilterSelected = {
+                    currentFilter = it
+                    sendFilterSync(it, filterTarget)
+                },
                 currentGame = currentGame,
-                onGameSelected = { currentGame = it },
+                onGameSelected = {
+                    currentGame = it
+                    sendGameSync(it)
+                },
                 target = filterTarget,
-                onTargetChanged = { filterTarget = it },
+                onTargetChanged = {
+                    filterTarget = it
+                    sendFilterSync(currentFilter, it)
+                },
                 sparklesEnabled = sparklesEnabled,
                 onSparklesToggled = { sparklesEnabled = it },
                 toddlerLockEnabled = toddlerLockEnabled,
