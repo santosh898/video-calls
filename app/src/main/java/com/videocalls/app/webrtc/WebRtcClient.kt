@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.webrtc.*
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "WebRtcClient"
@@ -46,6 +47,10 @@ class WebRtcClient(
     var onLocalIceCandidate: ((targetUid: String, candidate: IceCandidate) -> Unit)? = null
     var onPeerConnected: ((peerUid: String) -> Unit)? = null
     var onPeerDisconnected: ((peerUid: String) -> Unit)? = null
+
+    // Peer DataChannels for real-time interactivity & games (key: remoteUid)
+    private val dataChannels = ConcurrentHashMap<String, DataChannel>()
+    var onDataMessageReceived: ((senderUid: String, message: String) -> Unit)? = null
 
     // Audio routing
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -213,7 +218,12 @@ class WebRtcClient(
                 Log.d(TAG, "[$targetUid] onRemoveStream: ${stream?.id}")
             }
 
-            override fun onDataChannel(dataChannel: DataChannel?) {}
+            override fun onDataChannel(dataChannel: DataChannel?) {
+                dataChannel?.let { dc ->
+                    Log.d(TAG, "[$targetUid] onDataChannel received: ${dc.label()}")
+                    setupDataChannel(targetUid, dc)
+                }
+            }
 
             override fun onRenegotiationNeeded() {
                 Log.d(TAG, "[$targetUid] onRenegotiationNeeded")
@@ -243,9 +253,54 @@ class WebRtcClient(
             } else {
                 pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, streamIds))
             }
+
+            val dcInit = DataChannel.Init()
+            val dc = pc.createDataChannel("interactive_channel", dcInit)
+            if (dc != null) {
+                setupDataChannel(targetUid, dc)
+            }
+
             peerConnections[targetUid] = pc
         }
         return pc
+    }
+
+    private fun setupDataChannel(targetUid: String, dc: DataChannel) {
+        dataChannels[targetUid] = dc
+        dc.registerObserver(object : DataChannel.Observer {
+            override fun onBufferedAmountChange(previousAmount: Long) {}
+            override fun onStateChange() {
+                Log.d(TAG, "[$targetUid] DataChannel state: ${dc.state()}")
+            }
+            override fun onMessage(buffer: DataChannel.Buffer) {
+                try {
+                    val data = ByteArray(buffer.data.remaining())
+                    buffer.data.get(data)
+                    val text = String(data, Charsets.UTF_8)
+                    onDataMessageReceived?.invoke(targetUid, text)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reading DataChannel message", e)
+                }
+            }
+        })
+    }
+
+    fun sendDataMessage(targetUid: String?, message: String) {
+        try {
+            val bytes = message.toByteArray(Charsets.UTF_8)
+            val buffer = DataChannel.Buffer(ByteBuffer.wrap(bytes), false)
+            if (targetUid != null) {
+                dataChannels[targetUid]?.send(buffer)
+            } else {
+                dataChannels.values.forEach {
+                    if (it.state() == DataChannel.State.OPEN) {
+                        it.send(buffer)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending DataChannel message", e)
+        }
     }
 
     fun createOffer(targetUid: String, onSdpCreated: (SessionDescription) -> Unit) {
@@ -364,6 +419,7 @@ class WebRtcClient(
 
     fun removePeer(targetUid: String) {
         try {
+            dataChannels.remove(targetUid)?.close()
             peerConnections[targetUid]?.close()
             peerConnections.remove(targetUid)
             pendingIceCandidates.remove(targetUid)
@@ -448,6 +504,14 @@ class WebRtcClient(
         }
         peerConnections.clear()
         pendingIceCandidates.clear()
+
+        for ((_, dc) in dataChannels) {
+            try {
+                dc.close()
+                dc.dispose()
+            } catch (e: Exception) {}
+        }
+        dataChannels.clear()
 
         try {
             localVideoTrack?.setEnabled(false)

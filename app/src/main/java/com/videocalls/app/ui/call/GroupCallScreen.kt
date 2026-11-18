@@ -2,6 +2,7 @@ package com.videocalls.app.ui.call
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,11 +44,14 @@ import com.videocalls.app.data.local.AppDatabaseHelper
 import com.videocalls.app.data.model.CallStatus
 import com.videocalls.app.data.repository.CallSignalingRepository
 import com.videocalls.app.service.CallService
+import com.videocalls.app.ui.interactive.*
 import com.videocalls.app.ui.theme.RoseCallDecline
 import com.videocalls.app.webrtc.WebRtcClient
 import com.videocalls.app.webrtc.WebRtcSurfaceView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
@@ -135,6 +139,56 @@ fun GroupCallScreen(
         }
     }
 
+    // Interactive & Toddler Features
+    var currentFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
+    var filterTarget by remember { mutableStateOf(FilterTarget.REMOTE) }
+    var sparklesEnabled by remember { mutableStateOf(true) }
+    var toddlerLockEnabled by remember { mutableStateOf(false) }
+    var showKidsSheet by remember { mutableStateOf(false) }
+    var isPeekABooOpen by remember { mutableStateOf(true) }
+
+    val particleManager = remember { ParticleManager() }
+    val faceTracker = remember { FaceTracker() }
+    val detectedFace by faceTracker.detectedFace.collectAsState()
+
+    val bubbleManager = remember {
+        BubbleGameManager { id, _, _ ->
+            val msg = JSONObject().apply {
+                put("type", "BUBBLE_POP")
+                put("id", id)
+            }.toString()
+            rtcClient.sendDataMessage(null, msg)
+        }
+    }
+
+    val doodleManager = remember {
+        DoodleManager(
+            onStrokeFinished = { stroke ->
+                val pointsArray = JSONArray()
+                stroke.points.forEach { p ->
+                    pointsArray.put(JSONObject().apply {
+                        put("x", p.x.toDouble())
+                        put("y", p.y.toDouble())
+                    })
+                }
+                val msg = JSONObject().apply {
+                    put("type", "DOODLE_STROKE")
+                    put("color", stroke.color)
+                    put("strokeWidth", stroke.strokeWidth.toDouble())
+                    put("points", pointsArray)
+                }.toString()
+                rtcClient.sendDataMessage(null, msg)
+            },
+            onCleared = {
+                val msg = JSONObject().apply {
+                    put("type", "CLEAR_DOODLE")
+                }.toString()
+                rtcClient.sendDataMessage(null, msg)
+            }
+        )
+    }
+
     // Pinning state: ID of pinned peer (or "local")
     var pinnedId by remember { mutableStateOf<String?>(null) }
 
@@ -150,13 +204,18 @@ fun GroupCallScreen(
         coroutineScope.launch {
             signalingRepo.leaveCall(callId, currentUid, groupId)
             CallService.stop(context)
+            faceTracker.release()
             rtcClient.close()
             onCallEnded()
         }
     }
 
     BackHandler {
-        leaveCallInternal()
+        if (toddlerLockEnabled) {
+            Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+        } else {
+            leaveCallInternal()
+        }
     }
 
     LaunchedEffect(callSession?.status, callSession?.activeParticipants) {
@@ -190,6 +249,37 @@ fun GroupCallScreen(
         rtcClient.onLocalIceCandidate = { targetUid, candidate ->
             coroutineScope.launch {
                 signalingRepo.sendIceCandidate(callId, currentUid, targetUid, candidate)
+            }
+        }
+
+        // Listen for DataChannel messages (interactivity & games)
+        rtcClient.onDataMessageReceived = { _, message ->
+            try {
+                val json = JSONObject(message)
+                when (json.optString("type")) {
+                    "BUBBLE_POP" -> {
+                        val id = json.getInt("id")
+                        bubbleManager.popRemoteBubble(id, 1080f, 1920f)
+                    }
+                    "PEEK_A_BOO" -> {
+                        isPeekABooOpen = json.getBoolean("isOpen")
+                    }
+                    "DOODLE_STROKE" -> {
+                        val color = json.getLong("color")
+                        val strokeWidth = json.getDouble("strokeWidth").toFloat()
+                        val pointsArray = json.getJSONArray("points")
+                        val points = (0 until pointsArray.length()).map { i ->
+                            val pObj = pointsArray.getJSONObject(i)
+                            DoodlePoint(pObj.getDouble("x").toFloat(), pObj.getDouble("y").toFloat())
+                        }
+                        doodleManager.addRemoteStroke(DoodleStroke(color, strokeWidth, points))
+                    }
+                    "CLEAR_DOODLE" -> {
+                        doodleManager.strokes.clear()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GroupCallScreen", "Error parsing data message", e)
             }
         }
 
@@ -245,6 +335,7 @@ fun GroupCallScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            faceTracker.release()
             if (!isEnded) {
                 isEnded = true
                 coroutineScope.launch {
@@ -252,6 +343,23 @@ fun GroupCallScreen(
                 }
                 CallService.stop(context)
                 rtcClient.close()
+            }
+        }
+    }
+
+    LaunchedEffect(currentFilter, filterTarget, localVideoTrack, remoteVideoTracks, pinnedId) {
+        if (currentFilter == InteractiveFilterType.NONE) {
+            faceTracker.detach()
+        } else {
+            if (filterTarget == FilterTarget.LOCAL) {
+                faceTracker.attach(localVideoTrack, mirror = true)
+            } else {
+                val targetTrack = if (pinnedId != null && pinnedId != "local" && pinnedId != currentUid) {
+                    remoteVideoTracks[pinnedId]
+                } else {
+                    remoteVideoTracks.values.firstOrNull()
+                }
+                faceTracker.attach(targetTrack, mirror = false)
             }
         }
     }
@@ -569,6 +677,46 @@ fun GroupCallScreen(
             Spacer(modifier = Modifier.height(bottomSpacerHeight))
         }
 
+        // Interactive Face Filters Overlay
+        FaceFiltersOverlay(
+            filterType = currentFilter,
+            face = detectedFace
+        )
+
+        // Interactive Games Overlays
+        when (currentGame) {
+            InteractiveGameType.BUBBLE_POP -> {
+                BubblePopOverlay(
+                    manager = bubbleManager,
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.PEEK_A_BOO -> {
+                PeekABooOverlay(
+                    isOpen = isPeekABooOpen,
+                    onToggle = { nextState ->
+                        isPeekABooOpen = nextState
+                        val msg = JSONObject().apply {
+                            put("type", "PEEK_A_BOO")
+                            put("isOpen", nextState)
+                        }.toString()
+                        rtcClient.sendDataMessage(null, msg)
+                    },
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.DOODLE -> {
+                DoodleOverlay(manager = doodleManager)
+            }
+            InteractiveGameType.NONE -> {}
+        }
+
+        // Touch Sparkles Particle Overlay
+        ParticleOverlay(
+            particleManager = particleManager,
+            enabled = sparklesEnabled
+        )
+
         // Bottom Call Controls Bar
         AnimatedVisibility(
             visible = areControlsVisible,
@@ -655,13 +803,33 @@ fun GroupCallScreen(
                         )
                     }
 
+                    // Kids Fun Zone Button (🧸 / 🎈)
+                    FilledIconButton(
+                        onClick = {
+                            resetControlsTimer()
+                            showKidsSheet = true
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                                Color(0xFFEC4899).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                                Color(0xFFF472B6) else Color.White
+                        )
+                    ) {
+                        Text(text = "🧸", fontSize = 20.sp)
+                    }
+
                     Spacer(modifier = Modifier.width(6.dp))
 
                     // End Call Button
                     FilledIconButton(
                         onClick = {
                             resetControlsTimer()
-                            leaveCallInternal()
+                            if (toddlerLockEnabled) {
+                                Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+                            } else {
+                                leaveCallInternal()
+                            }
                         },
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = RoseCallDecline,
@@ -677,6 +845,23 @@ fun GroupCallScreen(
                     }
                 }
             }
+        }
+
+        // Kids Fun Zone Bottom Sheet
+        if (showKidsSheet) {
+            KidsModeBottomSheet(
+                onDismissRequest = { showKidsSheet = false },
+                currentFilter = currentFilter,
+                onFilterSelected = { currentFilter = it },
+                currentGame = currentGame,
+                onGameSelected = { currentGame = it },
+                target = filterTarget,
+                onTargetChanged = { filterTarget = it },
+                sparklesEnabled = sparklesEnabled,
+                onSparklesToggled = { sparklesEnabled = it },
+                toddlerLockEnabled = toddlerLockEnabled,
+                onToddlerLockToggled = { toddlerLockEnabled = it }
+            )
         }
     }
 }

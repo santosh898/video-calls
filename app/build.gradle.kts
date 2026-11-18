@@ -136,5 +136,8 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
 
+    // ML Kit Face Detection
+    implementation(libs.mlkit.face.detection)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

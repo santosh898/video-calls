@@ -40,11 +40,14 @@ import com.videocalls.app.data.repository.CallSignalingRepository
 import com.videocalls.app.data.util.PhoneNumberHelper
 import com.videocalls.app.service.CallService
 import com.videocalls.app.ui.home.InitialsAvatar
+import com.videocalls.app.ui.interactive.*
 import com.videocalls.app.ui.theme.RoseCallDecline
 import com.videocalls.app.webrtc.WebRtcClient
 import com.videocalls.app.webrtc.WebRtcSurfaceView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
 
@@ -130,6 +133,56 @@ fun SingleCallScreen(
     var offerCreated by remember { mutableStateOf(false) }
     var isEnded by remember { mutableStateOf(false) }
 
+    // Interactive & Toddler Features
+    var currentFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
+    var filterTarget by remember { mutableStateOf(FilterTarget.REMOTE) }
+    var sparklesEnabled by remember { mutableStateOf(true) }
+    var toddlerLockEnabled by remember { mutableStateOf(false) }
+    var showKidsSheet by remember { mutableStateOf(false) }
+    var isPeekABooOpen by remember { mutableStateOf(true) }
+
+    val particleManager = remember { ParticleManager() }
+    val faceTracker = remember { FaceTracker() }
+    val detectedFace by faceTracker.detectedFace.collectAsState()
+
+    val bubbleManager = remember {
+        BubbleGameManager { id, _, _ ->
+            val msg = JSONObject().apply {
+                put("type", "BUBBLE_POP")
+                put("id", id)
+            }.toString()
+            rtcClient.sendDataMessage(null, msg)
+        }
+    }
+
+    val doodleManager = remember {
+        DoodleManager(
+            onStrokeFinished = { stroke ->
+                val pointsArray = JSONArray()
+                stroke.points.forEach { p ->
+                    pointsArray.put(JSONObject().apply {
+                        put("x", p.x.toDouble())
+                        put("y", p.y.toDouble())
+                    })
+                }
+                val msg = JSONObject().apply {
+                    put("type", "DOODLE_STROKE")
+                    put("color", stroke.color)
+                    put("strokeWidth", stroke.strokeWidth.toDouble())
+                    put("points", pointsArray)
+                }.toString()
+                rtcClient.sendDataMessage(null, msg)
+            },
+            onCleared = {
+                val msg = JSONObject().apply {
+                    put("type", "CLEAR_DOODLE")
+                }.toString()
+                rtcClient.sendDataMessage(null, msg)
+            }
+        )
+    }
+
     // Call controls auto-hide & visibility state
     var areControlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -151,13 +204,18 @@ fun SingleCallScreen(
         coroutineScope.launch {
             signalingRepo.updateCallStatus(callId, CallStatus.ENDED)
             CallService.stop(context)
+            faceTracker.release()
             rtcClient.close()
             onCallEnded()
         }
     }
 
     BackHandler {
-        endCallInternal()
+        if (toddlerLockEnabled) {
+            Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+        } else {
+            endCallInternal()
+        }
     }
 
     // React to remote call session updates
@@ -194,6 +252,37 @@ fun SingleCallScreen(
 
         rtcClient.onPeerDisconnected = {
             isConnected = false
+        }
+
+        // Listen for DataChannel messages (interactivity & games)
+        rtcClient.onDataMessageReceived = { _, message ->
+            try {
+                val json = JSONObject(message)
+                when (json.optString("type")) {
+                    "BUBBLE_POP" -> {
+                        val id = json.getInt("id")
+                        bubbleManager.popRemoteBubble(id, 1080f, 1920f)
+                    }
+                    "PEEK_A_BOO" -> {
+                        isPeekABooOpen = json.getBoolean("isOpen")
+                    }
+                    "DOODLE_STROKE" -> {
+                        val color = json.getLong("color")
+                        val strokeWidth = json.getDouble("strokeWidth").toFloat()
+                        val pointsArray = json.getJSONArray("points")
+                        val points = (0 until pointsArray.length()).map { i ->
+                            val pObj = pointsArray.getJSONObject(i)
+                            DoodlePoint(pObj.getDouble("x").toFloat(), pObj.getDouble("y").toFloat())
+                        }
+                        doodleManager.addRemoteStroke(DoodleStroke(color, strokeWidth, points))
+                    }
+                    "CLEAR_DOODLE" -> {
+                        doodleManager.strokes.clear()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SingleCallScreen", "Error parsing data message", e)
+            }
         }
 
         // Listen for remote ICE candidates
@@ -239,6 +328,7 @@ fun SingleCallScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            faceTracker.release()
             if (!isEnded) {
                 isEnded = true
                 CallService.stop(context)
@@ -248,6 +338,18 @@ fun SingleCallScreen(
     }
 
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
+
+    LaunchedEffect(currentFilter, filterTarget, remoteTrack, localVideoTrack) {
+        if (currentFilter == InteractiveFilterType.NONE) {
+            faceTracker.detach()
+        } else {
+            if (filterTarget == FilterTarget.REMOTE) {
+                faceTracker.attach(remoteTrack, mirror = false)
+            } else {
+                faceTracker.attach(localVideoTrack, mirror = true)
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -346,6 +448,46 @@ fun SingleCallScreen(
             }
         }
 
+        // Interactive Face Filters Overlay
+        FaceFiltersOverlay(
+            filterType = currentFilter,
+            face = detectedFace
+        )
+
+        // Interactive Games Overlays
+        when (currentGame) {
+            InteractiveGameType.BUBBLE_POP -> {
+                BubblePopOverlay(
+                    manager = bubbleManager,
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.PEEK_A_BOO -> {
+                PeekABooOverlay(
+                    isOpen = isPeekABooOpen,
+                    onToggle = { nextState ->
+                        isPeekABooOpen = nextState
+                        val msg = JSONObject().apply {
+                            put("type", "PEEK_A_BOO")
+                            put("isOpen", nextState)
+                        }.toString()
+                        rtcClient.sendDataMessage(null, msg)
+                    },
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.DOODLE -> {
+                DoodleOverlay(manager = doodleManager)
+            }
+            InteractiveGameType.NONE -> {}
+        }
+
+        // Touch Sparkles Particle Overlay
+        ParticleOverlay(
+            particleManager = particleManager,
+            enabled = sparklesEnabled
+        )
+
         // Bottom Controls Bar
         AnimatedVisibility(
             visible = areControlsVisible,
@@ -435,9 +577,31 @@ fun SingleCallScreen(
                         )
                     }
 
+                    // Kids Fun Zone Button (🧸 / 🎈)
+                    FilledIconButton(
+                        onClick = {
+                            resetControlsTimer()
+                            showKidsSheet = true
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                                Color(0xFFEC4899).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                                Color(0xFFF472B6) else Color.White
+                        )
+                    ) {
+                        Text(text = "🧸", fontSize = 20.sp)
+                    }
+
                     // End Call (Rose red circular button)
                     FilledIconButton(
-                        onClick = { endCallInternal() },
+                        onClick = {
+                            if (toddlerLockEnabled) {
+                                Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+                            } else {
+                                endCallInternal()
+                            }
+                        },
                         modifier = Modifier.size(52.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = RoseCallDecline,
@@ -452,6 +616,23 @@ fun SingleCallScreen(
                     }
                 }
             }
+        }
+
+        // Kids Fun Zone Bottom Sheet
+        if (showKidsSheet) {
+            KidsModeBottomSheet(
+                onDismissRequest = { showKidsSheet = false },
+                currentFilter = currentFilter,
+                onFilterSelected = { currentFilter = it },
+                currentGame = currentGame,
+                onGameSelected = { currentGame = it },
+                target = filterTarget,
+                onTargetChanged = { filterTarget = it },
+                sparklesEnabled = sparklesEnabled,
+                onSparklesToggled = { sparklesEnabled = it },
+                toddlerLockEnabled = toddlerLockEnabled,
+                onToddlerLockToggled = { toddlerLockEnabled = it }
+            )
         }
     }
 }
