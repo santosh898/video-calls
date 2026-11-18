@@ -6,11 +6,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -41,6 +46,7 @@ import com.videocalls.app.service.CallService
 import com.videocalls.app.ui.theme.RoseCallDecline
 import com.videocalls.app.webrtc.WebRtcClient
 import com.videocalls.app.webrtc.WebRtcSurfaceView
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
@@ -113,6 +119,21 @@ fun GroupCallScreen(
     val callSession by signalingRepo.observeCallSession(callId).collectAsState(initial = null)
     val participants = callSession?.activeParticipants ?: emptyList()
     var isEnded by remember { mutableStateOf(false) }
+
+    // Call controls auto-hide & visibility state
+    var areControlsVisible by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    fun resetControlsTimer() {
+        lastInteractionTime = System.currentTimeMillis()
+    }
+
+    LaunchedEffect(areControlsVisible, lastInteractionTime) {
+        if (areControlsVisible) {
+            delay(4000L)
+            areControlsVisible = false
+        }
+    }
 
     // Pinning state: ID of pinned peer (or "local")
     var pinnedId by remember { mutableStateOf<String?>(null) }
@@ -237,44 +258,65 @@ fun GroupCallScreen(
 
     val otherPeers = (participants.filter { it != currentUid } + remoteVideoTracks.keys).distinct()
 
+    val bottomSpacerHeight by animateDpAsState(
+        targetValue = if (areControlsVisible) 100.dp else 16.dp,
+        animationSpec = tween(300),
+        label = "bottomSpacer"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0F172A))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                areControlsVisible = !areControlsVisible
+                if (areControlsVisible) {
+                    resetControlsTimer()
+                }
+            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top App Bar Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 44.dp, start = 20.dp, end = 20.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            AnimatedVisibility(
+                visible = areControlsVisible,
+                enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { -it },
+                exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it }
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = groupName,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "${otherPeers.size + 1} in call · Tap participant to pin",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.7f)
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF10B981).copy(alpha = 0.2f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 44.dp, start = 20.dp, end = 20.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "LIVE",
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF10B981),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = groupName,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${otherPeers.size + 1} in call · Tap participant to pin",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = "LIVE",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
 
@@ -317,7 +359,10 @@ fun GroupCallScreen(
                                     isMuted = if (isPinnedLocal) isMicMuted else false,
                                     isPinned = true,
                                     isOverlay = false,
-                                    onPinClick = { pinnedId = null },
+                                    onPinClick = {
+                                        resetControlsTimer()
+                                        pinnedId = null
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -344,10 +389,16 @@ fun GroupCallScreen(
                                         isMuted = if (isPeerLocal) isMicMuted else false,
                                         isPinned = false,
                                         isOverlay = true,
-                                        onPinClick = { pinnedId = peerId },
+                                        onPinClick = {
+                                            resetControlsTimer()
+                                            pinnedId = peerId
+                                        },
                                         modifier = Modifier
                                             .size(width = 105.dp, height = 150.dp)
-                                            .clickable { pinnedId = peerId }
+                                            .clickable {
+                                                resetControlsTimer()
+                                                pinnedId = peerId
+                                            }
                                     )
                                 }
                             }
@@ -369,7 +420,10 @@ fun GroupCallScreen(
                                 isMuted = false,
                                 isPinned = false,
                                 isOverlay = false,
-                                onPinClick = { pinnedId = singlePeer },
+                                onPinClick = {
+                                    resetControlsTimer()
+                                    pinnedId = singlePeer
+                                },
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -382,7 +436,10 @@ fun GroupCallScreen(
                                     .padding(top = 16.dp, end = 24.dp)
                                     .size(width = 110.dp, height = 160.dp)
                                     .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                                    .clickable { pinnedId = "local" },
+                                    .clickable {
+                                        resetControlsTimer()
+                                        pinnedId = "local"
+                                    },
                                 shape = RoundedCornerShape(16.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                             ) {
@@ -394,7 +451,10 @@ fun GroupCallScreen(
                                     isMuted = isMicMuted,
                                     isPinned = false,
                                     isOverlay = true,
-                                    onPinClick = { pinnedId = "local" },
+                                    onPinClick = {
+                                        resetControlsTimer()
+                                        pinnedId = "local"
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -419,7 +479,10 @@ fun GroupCallScreen(
                                         isMuted = false,
                                         isPinned = false,
                                         isOverlay = false,
-                                        onPinClick = { pinnedId = peerId },
+                                        onPinClick = {
+                                            resetControlsTimer()
+                                            pinnedId = peerId
+                                        },
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxWidth()
@@ -434,7 +497,10 @@ fun GroupCallScreen(
                                     .padding(top = 16.dp, end = 24.dp)
                                     .size(width = 100.dp, height = 145.dp)
                                     .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                                    .clickable { pinnedId = "local" },
+                                    .clickable {
+                                        resetControlsTimer()
+                                        pinnedId = "local"
+                                    },
                                 shape = RoundedCornerShape(16.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                             ) {
@@ -446,7 +512,10 @@ fun GroupCallScreen(
                                     isMuted = isMicMuted,
                                     isPinned = false,
                                     isOverlay = true,
-                                    onPinClick = { pinnedId = "local" },
+                                    onPinClick = {
+                                        resetControlsTimer()
+                                        pinnedId = "local"
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -479,11 +548,17 @@ fun GroupCallScreen(
                                     isMuted = if (isPeerLocal) isMicMuted else false,
                                     isPinned = false,
                                     isOverlay = true,
-                                    onPinClick = { pinnedId = id },
+                                    onPinClick = {
+                                        resetControlsTimer()
+                                        pinnedId = id
+                                    },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .aspectRatio(0.75f)
-                                        .clickable { pinnedId = id }
+                                        .clickable {
+                                            resetControlsTimer()
+                                            pinnedId = id
+                                        }
                                 )
                             }
                         }
@@ -491,94 +566,115 @@ fun GroupCallScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(100.dp))
+            Spacer(modifier = Modifier.height(bottomSpacerHeight))
         }
 
         // Bottom Call Controls Bar
-        Surface(
+        AnimatedVisibility(
+            visible = areControlsVisible,
+            enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { it },
+            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 36.dp, start = 20.dp, end = 20.dp),
-            shape = RoundedCornerShape(32.dp),
-            color = Color(0xFF1E293B).copy(alpha = 0.95f),
-            shadowElevation = 10.dp
+                .padding(bottom = 36.dp, start = 20.dp, end = 20.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            Surface(
+                shape = RoundedCornerShape(32.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.95f),
+                shadowElevation = 10.dp
             ) {
-                // Mic Mute Toggle
-                FilledIconButton(
-                    onClick = { rtcClient.toggleMic() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (isMicMuted) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isMicMuted) Color(0xFFEF4444) else Color.White
-                    )
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isMicMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                        contentDescription = "Mic"
-                    )
-                }
-
-                if (isVideo) {
-                    // Camera Flip
+                    // Mic Mute Toggle
                     FilledIconButton(
-                        onClick = { rtcClient.flipCamera() },
+                        onClick = {
+                            resetControlsTimer()
+                            rtcClient.toggleMic()
+                        },
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Color.White.copy(alpha = 0.1f),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(Icons.Rounded.Cameraswitch, contentDescription = "Flip")
-                    }
-
-                    // Video Camera On/Off
-                    FilledIconButton(
-                        onClick = { rtcClient.toggleVideo() },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (!isVideoEnabled) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (!isVideoEnabled) Color(0xFFEF4444) else Color.White
+                            containerColor = if (isMicMuted) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (isMicMuted) Color(0xFFEF4444) else Color.White
                         )
                     ) {
                         Icon(
-                            imageVector = if (!isVideoEnabled) Icons.Rounded.VideocamOff else Icons.Rounded.Videocam,
-                            contentDescription = "Video"
+                            imageVector = if (isMicMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                            contentDescription = "Mic"
                         )
                     }
-                }
 
-                // Speakerphone Toggle
-                FilledIconButton(
-                    onClick = { rtcClient.toggleSpeakerphone() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (isSpeakerOn) Color(0xFF38BDF8).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
-                        contentDescription = "Speaker"
-                    )
-                }
+                    if (isVideo) {
+                        // Camera Flip
+                        FilledIconButton(
+                            onClick = {
+                                resetControlsTimer()
+                                rtcClient.flipCamera()
+                            },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.White.copy(alpha = 0.1f),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(Icons.Rounded.Cameraswitch, contentDescription = "Flip")
+                        }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                        // Video Camera On/Off
+                        FilledIconButton(
+                            onClick = {
+                                resetControlsTimer()
+                                rtcClient.toggleVideo()
+                            },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (!isVideoEnabled) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                                contentColor = if (!isVideoEnabled) Color(0xFFEF4444) else Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (!isVideoEnabled) Icons.Rounded.VideocamOff else Icons.Rounded.Videocam,
+                                contentDescription = "Video"
+                            )
+                        }
+                    }
 
-                // End Call Button
-                FilledIconButton(
-                    onClick = { leaveCallInternal() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = RoseCallDecline,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CallEnd,
-                        contentDescription = "End Call",
-                        modifier = Modifier.size(26.dp)
-                    )
+                    // Speakerphone Toggle
+                    FilledIconButton(
+                        onClick = {
+                            resetControlsTimer()
+                            rtcClient.toggleSpeakerphone()
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (isSpeakerOn) Color(0xFF38BDF8).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
+                            contentDescription = "Speaker"
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // End Call Button
+                    FilledIconButton(
+                        onClick = {
+                            resetControlsTimer()
+                            leaveCallInternal()
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = RoseCallDecline,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CallEnd,
+                            contentDescription = "End Call",
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
             }
         }

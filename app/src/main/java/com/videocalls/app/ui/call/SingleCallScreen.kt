@@ -7,14 +7,21 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +43,7 @@ import com.videocalls.app.ui.home.InitialsAvatar
 import com.videocalls.app.ui.theme.RoseCallDecline
 import com.videocalls.app.webrtc.WebRtcClient
 import com.videocalls.app.webrtc.WebRtcSurfaceView
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
@@ -121,6 +129,21 @@ fun SingleCallScreen(
     var isConnected by remember { mutableStateOf(false) }
     var offerCreated by remember { mutableStateOf(false) }
     var isEnded by remember { mutableStateOf(false) }
+
+    // Call controls auto-hide & visibility state
+    var areControlsVisible by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    fun resetControlsTimer() {
+        lastInteractionTime = System.currentTimeMillis()
+    }
+
+    LaunchedEffect(areControlsVisible, lastInteractionTime) {
+        if (areControlsVisible) {
+            delay(4000L)
+            areControlsVisible = false
+        }
+    }
 
     fun endCallInternal() {
         if (isEnded) return
@@ -227,7 +250,17 @@ fun SingleCallScreen(
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                areControlsVisible = !areControlsVisible
+                if (areControlsVisible) {
+                    resetControlsTimer()
+                }
+            }
     ) {
         // Remote View
         if (isVideo && remoteTrack != null) {
@@ -314,11 +347,13 @@ fun SingleCallScreen(
         }
 
         // Top Status Bar (Overlay)
-        Row(
+        AnimatedVisibility(
+            visible = areControlsVisible,
+            enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { -it },
+            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it },
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 44.dp, start = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.TopStart)
+                .padding(top = 44.dp, start = 20.dp)
         ) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -345,91 +380,109 @@ fun SingleCallScreen(
         }
 
         // Bottom Controls Bar
-        Surface(
+        AnimatedVisibility(
+            visible = areControlsVisible,
+            enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { it },
+            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 36.dp, start = 20.dp, end = 20.dp),
-            shape = RoundedCornerShape(32.dp),
-            color = Color(0xFF1E293B).copy(alpha = 0.85f),
-            shadowElevation = 10.dp
+                .padding(bottom = 36.dp, start = 20.dp, end = 20.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            Surface(
+                shape = RoundedCornerShape(32.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                shadowElevation = 10.dp
             ) {
-                // Mic Mute Toggle
-                FilledIconButton(
-                    onClick = { rtcClient.toggleMic() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (isMicMuted) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isMicMuted) Color(0xFFEF4444) else Color.White
-                    )
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isMicMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                        contentDescription = "Mic"
-                    )
-                }
-
-                // Camera Flip
-                if (isVideo) {
+                    // Mic Mute Toggle
                     FilledIconButton(
-                        onClick = { rtcClient.flipCamera() },
+                        onClick = {
+                            resetControlsTimer()
+                            rtcClient.toggleMic()
+                        },
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Color.White.copy(alpha = 0.1f),
+                            containerColor = if (isMicMuted) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (isMicMuted) Color(0xFFEF4444) else Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isMicMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                            contentDescription = "Mic"
+                        )
+                    }
+
+                    // Camera Flip
+                    if (isVideo) {
+                        FilledIconButton(
+                            onClick = {
+                                resetControlsTimer()
+                                rtcClient.flipCamera()
+                            },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.White.copy(alpha = 0.1f),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Cameraswitch,
+                                contentDescription = "Flip Camera"
+                            )
+                        }
+
+                        // Video Track Toggle
+                        FilledIconButton(
+                            onClick = {
+                                resetControlsTimer()
+                                rtcClient.toggleVideo()
+                            },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (!isVideoEnabled) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                                contentColor = if (!isVideoEnabled) Color(0xFFEF4444) else Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (isVideoEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                contentDescription = "Toggle Video"
+                            )
+                        }
+                    }
+
+                    // Speakerphone Toggle
+                    FilledIconButton(
+                        onClick = {
+                            resetControlsTimer()
+                            rtcClient.toggleSpeakerphone()
+                        },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (isSpeakerOn) Color(0xFF0284C7).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
+                            contentDescription = "Speaker"
+                        )
+                    }
+
+                    // End Call (Rose red circular button)
+                    FilledIconButton(
+                        onClick = { endCallInternal() },
+                        modifier = Modifier.size(52.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = RoseCallDecline,
                             contentColor = Color.White
                         )
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Cameraswitch,
-                            contentDescription = "Flip Camera"
+                            imageVector = Icons.Rounded.CallEnd,
+                            contentDescription = "End Call",
+                            modifier = Modifier.size(28.dp)
                         )
                     }
-
-                    // Video Track Toggle
-                    FilledIconButton(
-                        onClick = { rtcClient.toggleVideo() },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (!isVideoEnabled) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (!isVideoEnabled) Color(0xFFEF4444) else Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (isVideoEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
-                            contentDescription = "Toggle Video"
-                        )
-                    }
-                }
-
-                // Speakerphone Toggle
-                FilledIconButton(
-                    onClick = { rtcClient.toggleSpeakerphone() },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (isSpeakerOn) Color(0xFF0284C7).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (isSpeakerOn) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeDown,
-                        contentDescription = "Speaker"
-                    )
-                }
-
-                // End Call (Rose red circular button)
-                FilledIconButton(
-                    onClick = { endCallInternal() },
-                    modifier = Modifier.size(52.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = RoseCallDecline,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CallEnd,
-                        contentDescription = "End Call",
-                        modifier = Modifier.size(28.dp)
-                    )
                 }
             }
         }
