@@ -346,39 +346,6 @@ fun SingleCallScreen(
             }
         }
 
-        // Top Status Bar (Overlay)
-        AnimatedVisibility(
-            visible = areControlsVisible,
-            enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { -it },
-            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 44.dp, start = 20.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color.Black.copy(alpha = 0.5f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (isConnected) Color(0xFF10B981) else Color(0xFFF59E0B))
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isConnected) "HD Call" else "Connecting",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-
         // Bottom Controls Bar
         AnimatedVisibility(
             visible = areControlsVisible,
