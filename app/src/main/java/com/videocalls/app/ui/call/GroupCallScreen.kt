@@ -140,7 +140,7 @@ fun GroupCallScreen(
 
     LaunchedEffect(areControlsVisible, lastInteractionTime) {
         if (areControlsVisible) {
-            delay(4000L)
+            delay(10000L)
             areControlsVisible = false
         }
     }
