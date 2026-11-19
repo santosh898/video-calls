@@ -43,6 +43,8 @@ fun FaceFiltersOverlay(
     val sunglassesBitmap = ImageBitmap.imageResource(id = R.drawable.filter_sunglasses)
     val partyHatBitmap = ImageBitmap.imageResource(id = R.drawable.filter_party_hat)
     val catEarsBitmap = ImageBitmap.imageResource(id = R.drawable.filter_cat_ears)
+    val catNoseBitmap = ImageBitmap.imageResource(id = R.drawable.filter_cat_nose)
+    val catTongueBitmap = ImageBitmap.imageResource(id = R.drawable.filter_cat_tongue)
 
     val infiniteTransition = rememberInfiniteTransition(label = "faceAnim")
 
@@ -151,23 +153,21 @@ fun FaceFiltersOverlay(
                 }
 
                 InteractiveEffectType.KITTY -> {
-                    // Real cute cat ears on head + pink nose + whiskers
+                    // Snapchat-style Kitty Cat Filter: cute 3D cat ears + pink nose with whiskers + tongue when mouth open
                     val earsW = faceRect.width * 1.05f
                     val earsH = earsW * (catEarsBitmap.height.toFloat() / catEarsBitmap.width.toFloat())
-                    val earsCenter = Offset(faceRect.center.x, faceRect.top - earsH * 0.28f - earBounce)
+                    val earsCenter = Offset(faceRect.center.x, faceRect.top - earsH * 0.25f - earBounce)
                     drawAsset(catEarsBitmap, earsCenter, earsW, rotation = face.headEulerZ)
 
-                    rotate(face.headEulerZ, pivot = faceRect.center) {
-                        // Cute pink heart nose
-                        drawCircle(Color(0xFFF48FB1), faceRect.width * 0.05f, nose)
-
-                        // Whiskers (3 left, 3 right)
-                        for (i in -1..1) {
-                            val yOff = i * 14f
-                            drawLine(Color.White, Offset(nose.x - faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x - faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
-                            drawLine(Color.White, Offset(nose.x + faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x + faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
-                        }
+                    if (tongueDrop > 0.05f) {
+                        val tongueW = faceRect.width * 0.28f * tongueDrop
+                        val tongueH = tongueW * (catTongueBitmap.height.toFloat() / catTongueBitmap.width.toFloat())
+                        val tongueCenter = Offset(nose.x, mouthBottom.y + tongueH * 0.32f)
+                        drawAsset(catTongueBitmap, tongueCenter, tongueW, rotation = face.headEulerZ)
                     }
+
+                    val noseW = faceRect.width * 0.48f
+                    drawAsset(catNoseBitmap, nose, noseW, rotation = face.headEulerZ)
                 }
 
                 InteractiveEffectType.TEARS -> {

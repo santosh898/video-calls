@@ -28,6 +28,10 @@ fun CartoonBackgroundOverlay(
     val bgResId = when (backgroundType) {
         InteractiveBackgroundType.SPACE -> R.drawable.bg_space
         InteractiveBackgroundType.UNDERWATER -> R.drawable.bg_underwater
+        InteractiveBackgroundType.SUNNY_BEACH -> R.drawable.bg_sunny_beach
+        InteractiveBackgroundType.CYBER_CITY -> R.drawable.bg_cyber_city
+        InteractiveBackgroundType.COZY_ROOM -> R.drawable.bg_cozy_room
+        InteractiveBackgroundType.FANTASY_CASTLE -> R.drawable.bg_fantasy
         InteractiveBackgroundType.JUNGLE -> R.drawable.bg_jungle
         InteractiveBackgroundType.CANDY_LAND -> R.drawable.bg_candy
         InteractiveBackgroundType.RAINBOW -> R.drawable.bg_rainbow
@@ -47,12 +51,12 @@ fun CartoonBackgroundOverlay(
             val h = size.height
             if (w <= 0 || h <= 0) return@Canvas
 
-            // 1. Draw the goofy cartoon background image filling the screen (Aspect Fill / Crop)
+            // 1. Draw portrait cartoon background image nicely framed without aggressive zoom
             val bgScale = maxOf(w / bgImageBitmap.width.toFloat(), h / bgImageBitmap.height.toFloat())
             val bgW = (bgImageBitmap.width * bgScale).toInt()
             val bgH = (bgImageBitmap.height * bgScale).toInt()
             val bgOffX = ((w - bgW) / 2f).toInt()
-            val bgOffY = ((h - bgH) / 2f).toInt()
+            val bgOffY = if (bgH > h) ((h - bgH) * 0.25f).toInt() else ((h - bgH) / 2f).toInt()
 
             drawImage(
                 image = bgImageBitmap,

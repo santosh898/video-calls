@@ -22,8 +22,12 @@ enum class InteractiveBackgroundType(val displayName: String, val icon: String) 
     NONE("None", "❌"),
     SPACE("Space Galaxy", "🚀"),
     UNDERWATER("Under the Sea", "🐠"),
+    SUNNY_BEACH("Sunny Beach", "🏖️"),
+    CYBER_CITY("Cyber City", "🌆"),
+    COZY_ROOM("Cozy Room", "🛋️"),
+    FANTASY_CASTLE("Magic Castle", "🏰"),
     JUNGLE("Wild Safari", "🌴"),
-    CANDY_LAND("Candy Kingdom", "🍭"),
+    CANDY_LAND("Candy Land", "🍭"),
     RAINBOW("Rainbow Sky", "🌈"),
     DINO("Dino Land", "🦖")
 }
