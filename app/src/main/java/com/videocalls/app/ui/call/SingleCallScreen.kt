@@ -406,6 +406,12 @@ fun SingleCallScreen(
     val activeMainFilter = currentFilter
     val activePipFilter = remoteAppliedFilterOnMe
 
+    val isKidsActive = currentFilter != InteractiveFilterType.NONE ||
+            remoteAppliedFilterOnMe != InteractiveFilterType.NONE ||
+            currentGame != InteractiveGameType.NONE ||
+            sparklesEnabled ||
+            toddlerLockEnabled
+
     LaunchedEffect(activeMainFilter, remoteTrack) {
         if (activeMainFilter == InteractiveFilterType.NONE) {
             faceTracker.detach()
@@ -618,9 +624,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner when controls are hidden
+        // Persistent Translucent Menu Pill in Corner: ONLY present when kids stuff is active AND controls are hidden
         AnimatedVisibility(
-            visible = !areControlsVisible,
+            visible = !areControlsVisible && isKidsActive,
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
