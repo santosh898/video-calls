@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 
@@ -106,7 +107,23 @@ class WebRtcClient(
 
         // Setup local audio
         if (localAudioTrack == null) {
-            val audioConstraints = MediaConstraints()
+            val audioConstraints = MediaConstraints().apply {
+                // Keep Acoustic Echo Cancellation so speakerphone output does not loop back
+                mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("echoCancellation", "true"))
+
+                // CRITICAL FOR KIDS: Disable ALL noise suppression and speech gating filters
+                // Default WebRTC NS treats high-pitched child shouts, shrieks & laughs as background noise
+                mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
+
+                // Keep soft Auto Gain Control active to boost distant/quiet toddler whispers without clipping
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
+            }
             localAudioSource = peerConnectionFactory.createAudioSource(audioConstraints)
             localAudioTrack = peerConnectionFactory.createAudioTrack("ARDAMSa0", localAudioSource)
             localAudioTrack?.setEnabled(true)
@@ -331,7 +348,7 @@ class WebRtcClient(
                 desc?.let { sdp ->
                     val preferredOffer = SessionDescription(
                         sdp.type,
-                        preferCodec(sdp.description, "VP8")
+                        optimizeSdp(sdp.description)
                     )
                     pc.setLocalDescription(object : SdpObserverAdapter() {
                         override fun onSetSuccess() {
@@ -377,7 +394,7 @@ class WebRtcClient(
                         desc?.let { answer ->
                             val preferredAnswer = SessionDescription(
                                 answer.type,
-                                preferCodec(answer.description, "VP8")
+                                optimizeSdp(answer.description)
                             )
                             pc.setLocalDescription(object : SdpObserverAdapter() {
                                 override fun onSetSuccess() {
@@ -578,6 +595,48 @@ class WebRtcClient(
         return lines.joinToString("\r\n")
     }
 
+    private fun optimizeSdp(sdpDescription: String): String {
+        val withPreferredCodec = preferCodec(sdpDescription, "VP8")
+        return tuneOpusForFullRangeAudio(withPreferredCodec)
+    }
+
+    /**
+     * Tunes Opus audio parameters to ensure child shouts, babbling, laughter, and room sounds
+     * are never muted or dropped:
+     * - usedtx=0: Disables Discontinuous Transmission (DTX) so the encoder streams continuously
+     *   without voice-gated silence.
+     * - maxaveragebitrate=64000: Full wideband fidelity across high child pitches (300-3000 Hz).
+     */
+    private fun tuneOpusForFullRangeAudio(sdpDescription: String): String {
+        val lines = sdpDescription.split("\r\n").toMutableList()
+        val opusRtpmapRegex = Regex("^a=rtpmap:(\\d+)\\s+opus/48000/2", RegexOption.IGNORE_CASE)
+        val opusPayload = lines.mapNotNull { line ->
+            opusRtpmapRegex.find(line)?.groupValues?.get(1)
+        }.firstOrNull() ?: return sdpDescription
+
+        val fmtpPrefix = "a=fmtp:$opusPayload"
+        val fmtpIndex = lines.indexOfFirst { it.startsWith(fmtpPrefix) }
+
+        if (fmtpIndex != -1) {
+            var fmtpLine = lines[fmtpIndex]
+            if (fmtpLine.contains("usedtx=1")) {
+                fmtpLine = fmtpLine.replace("usedtx=1", "usedtx=0")
+            } else if (!fmtpLine.contains("usedtx=0")) {
+                fmtpLine = "$fmtpLine;usedtx=0"
+            }
+            if (!fmtpLine.contains("maxaveragebitrate=")) {
+                fmtpLine = "$fmtpLine;maxaveragebitrate=64000"
+            }
+            lines[fmtpIndex] = fmtpLine
+        } else {
+            val rtpmapIndex = lines.indexOfFirst { it.startsWith("a=rtpmap:$opusPayload") }
+            if (rtpmapIndex != -1) {
+                lines.add(rtpmapIndex + 1, "a=fmtp:$opusPayload minptime=10;useinbandfec=1;usedtx=0;maxaveragebitrate=64000")
+            }
+        }
+        return lines.joinToString("\r\n")
+    }
+
     companion object {
         val sharedEglBase: EglBase by lazy { EglBase.create() }
 
@@ -595,7 +654,16 @@ class WebRtcClient(
             )
             val decoderFactory = DefaultVideoDecoderFactory(sharedEglBase.eglBaseContext)
 
+            // Audio Device Module customized for full-fidelity child vocalizations:
+            // 1. Hardware Echo Canceler enabled so speakerphone output doesn't loop into the mic
+            // 2. Hardware Noise Suppressor DISABLED so Android OS DSP does not filter out kid voices/shouts
+            val adm = JavaAudioDeviceModule.builder(context)
+                .setUseHardwareAcousticEchoCanceler(true)
+                .setUseHardwareNoiseSuppressor(false)
+                .createAudioDeviceModule()
+
             PeerConnectionFactory.builder()
+                .setAudioDeviceModule(adm)
                 .setVideoEncoderFactory(encoderFactory)
                 .setVideoDecoderFactory(decoderFactory)
                 .setOptions(PeerConnectionFactory.Options())
