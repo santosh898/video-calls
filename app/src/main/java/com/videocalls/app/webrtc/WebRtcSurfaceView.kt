@@ -24,10 +24,49 @@ fun WebRtcSurfaceView(
     isMirror: Boolean = false,
     scalingType: RendererCommon.ScalingType = RendererCommon.ScalingType.SCALE_ASPECT_FILL,
     isOverlay: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    captureFrames: Boolean = false,
+    onFrameCaptured: ((android.graphics.Bitmap) -> Unit)? = null
 ) {
     var boundTrack by remember { mutableStateOf<VideoTrack?>(null) }
     var rendererRef by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+
+    DisposableEffect(rendererRef, captureFrames) {
+        val renderer = rendererRef
+        var isCapturing = false
+
+        val frameListener = object : org.webrtc.EglRenderer.FrameListener {
+            override fun onFrame(bitmap: android.graphics.Bitmap?) {
+                if (bitmap != null) {
+                    onFrameCaptured?.invoke(bitmap)
+                }
+                if (captureFrames && renderer != null) {
+                    renderer.postDelayed({
+                        if (captureFrames) {
+                            try {
+                                renderer.addFrameListener(this, 0.45f)
+                            } catch (_: Exception) {}
+                        }
+                    }, 50L)
+                }
+            }
+        }
+
+        if (captureFrames && renderer != null) {
+            isCapturing = true
+            try {
+                renderer.addFrameListener(frameListener, 0.45f)
+            } catch (_: Exception) {}
+        }
+
+        onDispose {
+            if (isCapturing && renderer != null) {
+                try {
+                    renderer.removeFrameListener(frameListener)
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     DisposableEffect(videoTrack, rendererRef) {
         val renderer = rendererRef

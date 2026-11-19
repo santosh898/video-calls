@@ -194,6 +194,9 @@ fun GroupCallScreen(
     val pipSegTracker = remember { SelfieSegmentationTracker() }
     val pipMaskBitmap by pipSegTracker.maskBitmap.collectAsState()
 
+    var mainCameraFrameBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var pipCameraFrameBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
     fun sendFeedFilter(filter: InteractiveEffectType) {
         val msg = JSONObject().apply {
             put("type", "SET_FEED_FILTER")
@@ -908,7 +911,8 @@ fun GroupCallScreen(
         // Interactive Face Filters Overlay
         FaceFiltersOverlay(
             filterType = activeMainFilter,
-            face = detectedFace
+            face = detectedFace,
+            cameraFrame = mainCameraFrameBitmap
         )
 
         // Gesture Detection Overlay on Video ONLY when kids features are active
@@ -1286,6 +1290,7 @@ fun ParticipantTile(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            var tileCameraBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
             if (videoTrack != null) {
                 WebRtcSurfaceView(
                     modifier = Modifier.fillMaxSize(),
@@ -1293,6 +1298,10 @@ fun ParticipantTile(
                     eglBase = eglBase,
                     isMirror = isMirror,
                     isOverlay = isOverlay,
+                    captureFrames = overlayFilter == InteractiveEffectType.KALEIDOSCOPE,
+                    onFrameCaptured = { bmp ->
+                        tileCameraBitmap = bmp
+                    },
                     onClick = onClick
                 )
             }
@@ -1304,7 +1313,8 @@ fun ParticipantTile(
             if (overlayFilter != InteractiveEffectType.NONE) {
                 FaceFiltersOverlay(
                     filterType = overlayFilter,
-                    face = face
+                    face = face,
+                    cameraFrame = tileCameraBitmap
                 )
             } else {
                 Box(

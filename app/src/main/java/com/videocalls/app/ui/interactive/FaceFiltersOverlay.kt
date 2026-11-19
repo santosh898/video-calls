@@ -1,5 +1,6 @@
 package com.videocalls.app.ui.interactive
 
+import android.graphics.Bitmap
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,9 +14,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -27,7 +31,8 @@ import kotlin.math.sin
 fun FaceFiltersOverlay(
     modifier: Modifier = Modifier,
     filterType: InteractiveEffectType,
-    face: NormalizedFace?
+    face: NormalizedFace?,
+    cameraFrame: Bitmap? = null
 ) {
     if (filterType == InteractiveEffectType.NONE) return
 
@@ -88,7 +93,7 @@ fun FaceFiltersOverlay(
         when (filterType) {
             InteractiveEffectType.RAIN -> drawRainEffect(w, h, fastLoop)
             InteractiveEffectType.SNOW -> drawSnowEffect(w, h, fastLoop)
-            InteractiveEffectType.KALEIDOSCOPE -> drawKaleidoscopeEffect(w, h, medLoop)
+            InteractiveEffectType.KALEIDOSCOPE -> drawKaleidoscopeEffect(w, h, medLoop, cameraFrame)
             InteractiveEffectType.TWINKLES -> drawTwinklesEffect(w, h, medLoop, face)
             else -> {}
         }
@@ -230,104 +235,401 @@ private fun DrawScope.drawSnowEffect(w: Float, h: Float, progress: Float) {
     )
 }
 
-// 3. KALEIDOSCOPE: Mesmerizing rainbow faceted prismatic crystal symmetry
-private fun DrawScope.drawKaleidoscopeEffect(w: Float, h: Float, progress: Float) {
-    val center = Offset(w * 0.5f, h * 0.5f)
-    val maxRadius = w * 0.65f
-    val numSegments = 12
-    val rot = progress * 360f
+// 3. KALEIDOSCOPE: Live camera multi-facet radial reflection (WhatsApp style)
+private fun DrawScope.drawKaleidoscopeEffect(
+    w: Float,
+    h: Float,
+    progress: Float,
+    cameraFrame: Bitmap?
+) {
+    val cx = w * 0.5f
+    val cy = h * 0.5f
 
-    val spectrumColors = listOf(
-        Color(0x33FF0055),
-        Color(0x33FF7700),
-        Color(0x33FFDD00),
-        Color(0x3300FF66),
-        Color(0x3300DDFF),
-        Color(0x339900FF)
+    if (cameraFrame != null && !cameraFrame.isRecycled) {
+        val img = cameraFrame.asImageBitmap()
+        val imgW = w.toInt()
+        val imgH = h.toInt()
+
+        // 1. Top Sector: Vertically Mirrored Reflection (upside down user face)
+        val topSector = Path().apply {
+            moveTo(cx, cy)
+            lineTo(0f, 0f)
+            lineTo(w, 0f)
+            close()
+        }
+        clipPath(topSector) {
+            scale(1f, -1f, pivot = Offset(cx, cy)) {
+                drawImage(
+                    image = img,
+                    dstOffset = IntOffset(0, 0),
+                    dstSize = IntSize(imgW, imgH),
+                    filterQuality = FilterQuality.Low
+                )
+            }
+        }
+
+        // 2. Bottom Sector: Vertically Mirrored Reflection (upside down torso)
+        val bottomSector = Path().apply {
+            moveTo(cx, cy)
+            lineTo(0f, h)
+            lineTo(w, h)
+            close()
+        }
+        clipPath(bottomSector) {
+            scale(1f, -1f, pivot = Offset(cx, cy)) {
+                drawImage(
+                    image = img,
+                    dstOffset = IntOffset(0, 0),
+                    dstSize = IntSize(imgW, imgH),
+                    filterQuality = FilterQuality.Low
+                )
+            }
+        }
+
+        // 3. Left Sector: Horizontally Mirrored Reflection
+        val leftSector = Path().apply {
+            moveTo(cx, cy)
+            lineTo(0f, 0f)
+            lineTo(0f, h)
+            close()
+        }
+        clipPath(leftSector) {
+            scale(-1f, 1f, pivot = Offset(cx, cy)) {
+                drawImage(
+                    image = img,
+                    dstOffset = IntOffset(0, 0),
+                    dstSize = IntSize(imgW, imgH),
+                    filterQuality = FilterQuality.Low
+                )
+            }
+        }
+
+        // 4. Right Sector: Horizontally Mirrored Reflection
+        val rightSector = Path().apply {
+            moveTo(cx, cy)
+            lineTo(w, 0f)
+            lineTo(w, h)
+            close()
+        }
+        clipPath(rightSector) {
+            scale(-1f, 1f, pivot = Offset(cx, cy)) {
+                drawImage(
+                    image = img,
+                    dstOffset = IntOffset(0, 0),
+                    dstSize = IntSize(imgW, imgH),
+                    filterQuality = FilterQuality.Low
+                )
+            }
+        }
+    }
+
+    // 5. Facet Seams (Crystal refraction diagonal lines from corners to center)
+    drawLine(Color.White.copy(alpha = 0.55f), Offset(0f, 0f), Offset(cx, cy), strokeWidth = 3f)
+    drawLine(Color.White.copy(alpha = 0.55f), Offset(w, 0f), Offset(cx, cy), strokeWidth = 3f)
+    drawLine(Color.White.copy(alpha = 0.55f), Offset(0f, h), Offset(cx, cy), strokeWidth = 3f)
+    drawLine(Color.White.copy(alpha = 0.55f), Offset(w, h), Offset(cx, cy), strokeWidth = 3f)
+
+    // 6. Top-Center Prismatic Light Flare (WhatsApp signature beam shining downwards)
+    val beamW = w * 0.16f
+    val beamPath = Path().apply {
+        moveTo(cx - beamW, 0f)
+        lineTo(cx + beamW, 0f)
+        lineTo(cx + beamW * 2.2f, cy * 0.9f)
+        lineTo(cx - beamW * 2.2f, cy * 0.9f)
+        close()
+    }
+    drawPath(
+        path = beamPath,
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.85f),
+                Color(0x88E0F7FA),
+                Color.Transparent
+            ),
+            startY = 0f,
+            endY = cy * 0.9f
+        )
     )
 
-    rotate(rot, pivot = center) {
-        for (i in 0 until numSegments) {
-            val angle1 = (i * (360f / numSegments)) * (Math.PI / 180.0)
-            val angle2 = ((i + 1) * (360f / numSegments)) * (Math.PI / 180.0)
+    // 7. Subtle prismatic crystal edge glow
+    drawRect(
+        brush = Brush.radialGradient(
+            colors = listOf(Color.Transparent, Color(0x33B2EBF2), Color(0x55000000)),
+            center = Offset(cx, cy),
+            radius = w * 0.85f
+        )
+    )
+}
 
-            val p1 = Offset(center.x + cos(angle1).toFloat() * maxRadius, center.y + sin(angle1).toFloat() * maxRadius)
-            val p2 = Offset(center.x + cos(angle2).toFloat() * maxRadius, center.y + sin(angle2).toFloat() * maxRadius)
+// 4. SPARKLES: Real camera lens starburst cross-flare glints (WhatsApp Kirakira style)
+private fun DrawScope.drawTwinklesEffect(
+    w: Float,
+    h: Float,
+    progress: Float,
+    face: NormalizedFace?
+) {
+    val faceRect = if (face != null) {
+        Rect(
+            left = face.bounds.left * w,
+            top = face.bounds.top * h,
+            right = face.bounds.right * w,
+            bottom = face.bounds.bottom * h
+        )
+    } else {
+        Rect(w * 0.25f, h * 0.25f, w * 0.75f, h * 0.75f)
+    }
 
-            val path = Path().apply {
-                moveTo(center.x, center.y)
-                lineTo(p1.x, p1.y)
-                lineTo(p2.x, p2.y)
-                close()
-            }
-            drawPath(path, spectrumColors[i % spectrumColors.size])
-            drawPath(path, Color.White.copy(alpha = 0.4f), style = Stroke(width = 2f))
+    val leftEye = face?.leftEye?.let { Offset(it.x * w, it.y * h) }
+        ?: Offset(faceRect.left + faceRect.width * 0.35f, faceRect.top + faceRect.height * 0.35f)
+    val rightEye = face?.rightEye?.let { Offset(it.x * w, it.y * h) }
+        ?: Offset(faceRect.left + faceRect.width * 0.65f, faceRect.top + faceRect.height * 0.35f)
+
+    // 12 authentic sparkle positions (face specular points + dark hair + ambient background)
+    val sparklePositions = listOf(
+        // Face specular highlights
+        Offset(leftEye.x - faceRect.width * 0.10f, leftEye.y - faceRect.height * 0.12f),
+        Offset(rightEye.x + faceRect.width * 0.12f, rightEye.y - faceRect.height * 0.15f),
+        Offset(rightEye.x + faceRect.width * 0.08f, rightEye.y + faceRect.height * 0.10f),
+        Offset(faceRect.center.x - faceRect.width * 0.25f, faceRect.top - faceRect.height * 0.08f),
+        Offset(faceRect.center.x + faceRect.width * 0.20f, faceRect.top - faceRect.height * 0.06f),
+        Offset(faceRect.center.x, faceRect.top - faceRect.height * 0.16f),
+        Offset(faceRect.left + faceRect.width * 0.08f, faceRect.center.y + faceRect.height * 0.05f),
+        // Ambient background / hair highlights
+        Offset(w * 0.16f, h * 0.24f),
+        Offset(w * 0.84f, h * 0.26f),
+        Offset(w * 0.24f, h * 0.44f),
+        Offset(w * 0.78f, h * 0.46f),
+        Offset(w * 0.50f, h * 0.12f)
+    )
+
+    val baseSize = (w * 0.055f).coerceIn(24f, 60f)
+
+    for (i in sparklePositions.indices) {
+        val pos = sparklePositions[i]
+        val phase = (progress + i * 0.14f) % 1.0f
+
+        // Independent twinkle bell-curve envelope
+        val envelope = if (phase < 0.20f) {
+            0f // dormant
+        } else if (phase < 0.48f) {
+            (phase - 0.20f) / 0.28f // rising
+        } else if (phase < 0.58f) {
+            1f // peak gleam
+        } else if (phase < 0.86f) {
+            ((0.86f - phase) / 0.28f).coerceIn(0f, 1f) // fading
+        } else {
+            0f // dormant
+        }
+
+        if (envelope > 0.02f) {
+            val size = baseSize * (0.65f + 0.45f * envelope)
+            val rot = 12f + i * 31f + phase * 22f
+            drawStarburstFlare(
+                center = pos,
+                size = size,
+                alpha = envelope,
+                rotation = rot
+            )
         }
     }
 }
 
-// 4. TWINKLES: Orbiting sparkling golden & cyan magical stars
-private fun DrawScope.drawTwinklesEffect(w: Float, h: Float, progress: Float, face: NormalizedFace?) {
-    val center = if (face != null) {
-        Offset(face.bounds.centerX() * w, face.bounds.centerY() * h)
-    } else {
-        Offset(w * 0.5f, h * 0.4f)
-    }
+private fun DrawScope.drawStarburstFlare(
+    center: Offset,
+    size: Float,
+    alpha: Float,
+    rotation: Float
+) {
+    if (alpha <= 0.01f || size <= 1f) return
+    val rayLen = size
+    val rayThick = size * 0.09f
+    val diagLen = size * 0.45f
+    val diagThick = size * 0.06f
 
-    val starColors = listOf(Color(0xFFFFD700), Color(0xFFFF69B4), Color(0xFF00FFFF), Color(0xFF76FF03))
-    val numStars = 8
+    rotate(rotation, pivot = center) {
+        // 1. Soft radial glow halo
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.95f * alpha),
+                    Color(0x6680D8FF).copy(alpha = 0.6f * alpha),
+                    Color.Transparent
+                ),
+                center = center,
+                radius = size * 0.40f
+            ),
+            radius = size * 0.40f,
+            center = center
+        )
 
-    for (i in 0 until numStars) {
-        val angle = (progress * 2 * Math.PI.toFloat() + (i * 2 * Math.PI.toFloat() / numStars))
-        val dist = w * (0.28f + 0.08f * sin((progress * 4f + i).toDouble()).toFloat())
-        val sx = center.x + cos(angle.toDouble()).toFloat() * dist
-        val sy = center.y + sin(angle.toDouble()).toFloat() * (dist * 0.8f)
+        // 2. Primary 4 Cross Needles (Horizontal and Vertical)
+        val vNeedle = Path().apply {
+            moveTo(center.x, center.y - rayLen)
+            lineTo(center.x + rayThick, center.y)
+            lineTo(center.x, center.y + rayLen)
+            lineTo(center.x - rayThick, center.y)
+            close()
+        }
+        drawPath(vNeedle, Color.White.copy(alpha = 0.95f * alpha))
 
-        val starSize = w * 0.035f * (0.7f + 0.3f * sin((progress * 6f + i).toDouble()).toFloat())
-        drawSparkleStar(Offset(sx, sy), starSize, starColors[i % starColors.size])
+        val hNeedle = Path().apply {
+            moveTo(center.x - rayLen, center.y)
+            lineTo(center.x, center.y - rayThick)
+            lineTo(center.x + rayLen, center.y)
+            lineTo(center.x, center.y + rayThick)
+            close()
+        }
+        drawPath(hNeedle, Color.White.copy(alpha = 0.95f * alpha))
+
+        // 3. Secondary 4 Diagonal Needles (45 degrees)
+        rotate(45f, pivot = center) {
+            val diagV = Path().apply {
+                moveTo(center.x, center.y - diagLen)
+                lineTo(center.x + diagThick, center.y)
+                lineTo(center.x, center.y + diagLen)
+                lineTo(center.x - diagThick, center.y)
+                close()
+            }
+            drawPath(diagV, Color(0xFFE0F7FA).copy(alpha = 0.85f * alpha))
+
+            val diagH = Path().apply {
+                moveTo(center.x - diagLen, center.y)
+                lineTo(center.x, center.y - diagThick)
+                lineTo(center.x + diagLen, center.y)
+                lineTo(center.x, center.y + diagThick)
+                close()
+            }
+            drawPath(diagH, Color(0xFFE0F7FA).copy(alpha = 0.85f * alpha))
+        }
+
+        // 4. Central intense white specular core
+        drawCircle(
+            color = Color.White.copy(alpha = alpha),
+            radius = size * 0.08f,
+            center = center
+        )
     }
 }
 
-// 5. DRAMA TEARS: Bubbly cartoon water fountain cascading from eye corners
-private fun DrawScope.drawDramaTears(leftEye: Offset, rightEye: Offset, faceRect: Rect, progress: Float, rotationZ: Float) {
-    val dropSpeed = (progress * 180f)
+// 5. DRAMA TEARS: Authentic WhatsApp-style cartoon teardrops dripping down each cheek
+private fun DrawScope.drawDramaTears(
+    leftEye: Offset,
+    rightEye: Offset,
+    faceRect: Rect,
+    progress: Float,
+    rotationZ: Float
+) {
+    val tearW = (faceRect.width * 0.09f).coerceIn(24f, 75f)
+    val tearH = tearW * 1.45f
+    val dripDist = faceRect.height * 0.38f
+
     rotate(rotationZ, pivot = faceRect.center) {
-        drawTearStream(Offset(leftEye.x - faceRect.width * 0.08f, leftEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
-        drawTearStream(Offset(rightEye.x + faceRect.width * 0.08f, rightEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
+        // Left Eye: 2 staggered dripping cartoon teardrops
+        drawEyeTearDrops(
+            eyeCenter = leftEye,
+            tearW = tearW,
+            tearH = tearH,
+            dripDist = dripDist,
+            progress = progress
+        )
+
+        // Right Eye: 2 staggered dripping cartoon teardrops
+        drawEyeTearDrops(
+            eyeCenter = rightEye,
+            tearW = tearW,
+            tearH = tearH,
+            dripDist = dripDist,
+            progress = progress
+        )
     }
 }
 
-private fun DrawScope.drawTearStream(start: Offset, maxLen: Float, dropOffset: Float) {
-    val path = Path().apply {
-        moveTo(start.x, start.y)
-        quadraticTo(start.x - 15f, start.y + maxLen * 0.5f, start.x, start.y + maxLen)
-        lineTo(start.x + 12f, start.y + maxLen)
-        quadraticTo(start.x + 20f, start.y + maxLen * 0.5f, start.x + 8f, start.y)
-        close()
-    }
-    drawPath(path, Color(0x9938BDF8))
+private fun DrawScope.drawEyeTearDrops(
+    eyeCenter: Offset,
+    tearW: Float,
+    tearH: Float,
+    dripDist: Float,
+    progress: Float
+) {
+    val startY = eyeCenter.y + tearH * 0.65f
 
-    for (d in 0..2) {
-        val dy = (dropOffset + d * (maxLen / 3f)) % maxLen
-        val tearY = start.y + dy
-        drawCircle(Color(0xFF0284C7), 14f, Offset(start.x + 4f, tearY))
-        drawCircle(Color.White, 5f, Offset(start.x + 1f, tearY - 4f))
+    // 2 staggered drops per eye (matching WhatsApp Image 1)
+    for (i in 0..1) {
+        val dropPhase = (progress + i * 0.5f) % 1.0f
+        val dropY = startY + dropPhase * dripDist
+
+        // Smooth fade-in at eyelid and fade-out towards jaw
+        val alpha = if (dropPhase < 0.15f) {
+            dropPhase / 0.15f
+        } else if (dropPhase > 0.82f) {
+            ((1f - dropPhase) / 0.18f).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+
+        val scale = 0.88f + 0.22f * dropPhase
+        drawCartoonTearDrop(
+            center = Offset(eyeCenter.x, dropY),
+            width = tearW * scale,
+            height = tearH * scale,
+            alpha = alpha
+        )
     }
 }
 
-private fun DrawScope.drawSparkleStar(center: Offset, size: Float, color: Color) {
+private fun DrawScope.drawCartoonTearDrop(
+    center: Offset,
+    width: Float,
+    height: Float,
+    alpha: Float
+) {
+    if (alpha <= 0.02f || width <= 1f || height <= 1f) return
+    val w = width
+    val h = height
+    val cx = center.x
+    val cy = center.y
+
     val path = Path().apply {
-        moveTo(center.x, center.y - size)
-        lineTo(center.x + size * 0.25f, center.y - size * 0.25f)
-        lineTo(center.x + size, center.y)
-        lineTo(center.x + size * 0.25f, center.y + size * 0.25f)
-        lineTo(center.x, center.y + size)
-        lineTo(center.x - size * 0.25f, center.y + size * 0.25f)
-        lineTo(center.x - size, center.y)
-        lineTo(center.x - size * 0.25f, center.y - size * 0.25f)
+        moveTo(cx, cy - h * 0.5f) // sharp top point
+        cubicTo(
+            cx + w * 0.18f, cy - h * 0.15f,
+            cx + w * 0.50f, cy + h * 0.05f,
+            cx + w * 0.50f, cy + h * 0.24f
+        )
+        // bottom rounded bulb
+        arcTo(
+            rect = Rect(cx - w * 0.50f, cy - h * 0.02f, cx + w * 0.50f, cy + h * 0.50f),
+            startAngleDegrees = 0f,
+            sweepAngleDegrees = 180f,
+            forceMoveTo = false
+        )
+        cubicTo(
+            cx - w * 0.50f, cy + h * 0.05f,
+            cx - w * 0.18f, cy - h * 0.15f,
+            cx, cy - h * 0.5f
+        )
         close()
     }
-    drawPath(path, color)
+
+    // 1. Darker cyan/blue crisp outline
+    drawPath(
+        path = path,
+        color = Color(0xFF0288D1).copy(alpha = 0.95f * alpha),
+        style = Stroke(width = (w * 0.08f).coerceIn(2.5f, 5f))
+    )
+
+    // 2. Solid vibrant cyan water drop fill
+    drawPath(
+        path = path,
+        color = Color(0xFF4FC3F7).copy(alpha = 0.95f * alpha)
+    )
+
+    // 3. Cute white curved glint highlight at upper-left of bulb
+    drawCircle(
+        color = Color.White.copy(alpha = 0.92f * alpha),
+        radius = w * 0.12f,
+        center = Offset(cx - w * 0.18f, cy + h * 0.14f)
+    )
 }
 
 // Real AR asset drawing helper

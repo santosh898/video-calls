@@ -188,6 +188,9 @@ fun SingleCallScreen(
     val pipSegTracker = remember { SelfieSegmentationTracker() }
     val pipMaskBitmap by pipSegTracker.maskBitmap.collectAsState()
 
+    var mainCameraFrameBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var pipCameraFrameBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
     fun sendFeedFilter(filter: InteractiveEffectType) {
         val msg = JSONObject().apply {
             put("type", "SET_FEED_FILTER")
@@ -540,6 +543,10 @@ fun SingleCallScreen(
                 videoTrack = remoteTrack,
                 eglBase = rtcClient.eglBase,
                 isOverlay = false,
+                captureFrames = activeMainFilter == InteractiveEffectType.KALEIDOSCOPE,
+                onFrameCaptured = { bmp ->
+                    mainCameraFrameBitmap = bmp
+                },
                 onClick = {
                     areControlsVisible = !areControlsVisible
                     if (areControlsVisible) {
@@ -643,7 +650,11 @@ fun SingleCallScreen(
                         videoTrack = localVideoTrack,
                         eglBase = rtcClient.eglBase,
                         isMirror = true,
-                        isOverlay = true
+                        isOverlay = true,
+                        captureFrames = activePipFilter == InteractiveEffectType.KALEIDOSCOPE,
+                        onFrameCaptured = { bmp ->
+                            pipCameraFrameBitmap = bmp
+                        }
                     )
                     CartoonBackgroundOverlay(
                         backgroundType = activePipBackground,
@@ -651,7 +662,8 @@ fun SingleCallScreen(
                     )
                     FaceFiltersOverlay(
                         filterType = activePipFilter,
-                        face = pipDetectedFace
+                        face = pipDetectedFace,
+                        cameraFrame = pipCameraFrameBitmap
                     )
                 }
             }
@@ -666,7 +678,8 @@ fun SingleCallScreen(
         // Interactive Face Filters / Effects Overlay on Main Video
         FaceFiltersOverlay(
             filterType = activeMainFilter,
-            face = detectedFace
+            face = detectedFace,
+            cameraFrame = mainCameraFrameBitmap
         )
 
         // Gesture Detection Overlay on Video ONLY when kids features are active
