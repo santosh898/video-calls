@@ -17,8 +17,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -148,6 +148,10 @@ fun SingleCallScreen(
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
 
+    // Internal tracker for when Kids features are active
+    // Activates when at least one filter/effect or background is set, deactivates ONLY when both are set to NONE via menu
+    var isKidsFeaturesActive by remember { mutableStateOf(false) }
+
     // Mirrored Filter & Background Applied by Remote Caller on Me
     var remoteAppliedFilterOnMe by remember { mutableStateOf(InteractiveEffectType.NONE) }
     var remoteAppliedBackground by remember { mutableStateOf(InteractiveBackgroundType.NONE) }
@@ -209,27 +213,29 @@ fun SingleCallScreen(
     }
 
     fun cycleNextBackground(forward: Boolean = true) {
-        val values = InteractiveBackgroundType.values()
-        val curIndex = values.indexOf(currentBackground).coerceAtLeast(0)
+        val cyclingBackgrounds = InteractiveBackgroundType.values().filter { it != InteractiveBackgroundType.NONE }
+        val curIndex = cyclingBackgrounds.indexOf(currentBackground)
         val nextIndex = if (forward) {
-            (curIndex + 1) % values.size
+            if (curIndex == -1) 0 else (curIndex + 1) % cyclingBackgrounds.size
         } else {
-            if (curIndex - 1 < 0) values.size - 1 else curIndex - 1
+            if (curIndex <= 0) cyclingBackgrounds.size - 1 else curIndex - 1
         }
-        val nextBg = values[nextIndex]
+        val nextBg = cyclingBackgrounds[nextIndex]
         currentBackground = nextBg
         sendBackgroundSync(nextBg)
+        isKidsFeaturesActive = true
         KidsSoundManager.playWhoosh()
         badgeToastMessage = "${nextBg.icon} ${nextBg.displayName}"
     }
 
     fun cycleNextEffect() {
-        val values = InteractiveEffectType.values()
-        val curIndex = values.indexOf(currentFilter).coerceAtLeast(0)
-        val nextIndex = (curIndex + 1) % values.size
-        val nextEffect = values[nextIndex]
+        val cyclingEffects = InteractiveEffectType.values().filter { it != InteractiveEffectType.NONE }
+        val curIndex = cyclingEffects.indexOf(currentFilter)
+        val nextIndex = if (curIndex == -1) 0 else (curIndex + 1) % cyclingEffects.size
+        val nextEffect = cyclingEffects[nextIndex]
         currentFilter = nextEffect
         sendFeedFilter(nextEffect)
+        isKidsFeaturesActive = true
         KidsSoundManager.playSparkle()
         badgeToastMessage = "${nextEffect.icon} ${nextEffect.displayName}"
     }
@@ -332,8 +338,17 @@ fun SingleCallScreen(
                         }
                         remoteAppliedFilterOnMe = filter
                         if (filter != InteractiveFilterType.NONE) {
+                            isKidsFeaturesActive = true
                             contextNotificationMessage = "${filter.icon} $targetName gave you ${filter.displayName} filter!"
                             KidsSoundManager.playSparkle()
+                        } else {
+                            if (currentFilter == InteractiveEffectType.NONE &&
+                                currentBackground == InteractiveBackgroundType.NONE &&
+                                remoteAppliedBackground == InteractiveBackgroundType.NONE &&
+                                currentGame == InteractiveGameType.NONE
+                            ) {
+                                isKidsFeaturesActive = false
+                            }
                         }
                     }
                     "GAME_SYNC" -> {
@@ -344,6 +359,15 @@ fun SingleCallScreen(
                             InteractiveGameType.NONE
                         }
                         currentGame = game
+                        if (game != InteractiveGameType.NONE) {
+                            isKidsFeaturesActive = true
+                        } else if (currentFilter == InteractiveEffectType.NONE &&
+                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
+                            currentBackground == InteractiveBackgroundType.NONE &&
+                            remoteAppliedBackground == InteractiveBackgroundType.NONE
+                        ) {
+                            isKidsFeaturesActive = false
+                        }
                     }
                     "SPARKLE_BURST" -> {
                         val x = json.optDouble("x", 0.5).toFloat()
@@ -367,8 +391,17 @@ fun SingleCallScreen(
                         }
                         remoteAppliedBackground = bg
                         if (bg != InteractiveBackgroundType.NONE) {
+                            isKidsFeaturesActive = true
                             contextNotificationMessage = "${bg.icon} $targetName set ${bg.displayName} scenery!"
                             KidsSoundManager.playWhoosh()
+                        } else {
+                            if (currentFilter == InteractiveEffectType.NONE &&
+                                remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
+                                currentBackground == InteractiveBackgroundType.NONE &&
+                                currentGame == InteractiveGameType.NONE
+                            ) {
+                                isKidsFeaturesActive = false
+                            }
                         }
                     }
                 }
@@ -440,7 +473,8 @@ fun SingleCallScreen(
     val activeMainBackground = if (currentBackground != InteractiveBackgroundType.NONE) currentBackground else remoteAppliedBackground
     val activePipBackground = remoteAppliedBackground
 
-    val isKidsActive = currentFilter != InteractiveEffectType.NONE ||
+    val isKidsActive = isKidsFeaturesActive ||
+            currentFilter != InteractiveEffectType.NONE ||
             remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
             currentBackground != InteractiveBackgroundType.NONE ||
             remoteAppliedBackground != InteractiveBackgroundType.NONE ||
@@ -635,50 +669,50 @@ fun SingleCallScreen(
             face = detectedFace
         )
 
-        // Gesture Detection Overlay on Video ONLY when at least one kid's filter or background is active
-        val hasActiveKidsEffectOrBg = currentFilter != InteractiveEffectType.NONE ||
-                remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
-                currentBackground != InteractiveBackgroundType.NONE ||
-                remoteAppliedBackground != InteractiveBackgroundType.NONE
-
-        if (isVideo && currentGame == InteractiveGameType.NONE && hasActiveKidsEffectOrBg) {
-            var dragAccumX by remember { mutableFloatStateOf(0f) }
-            var dragAccumY by remember { mutableFloatStateOf(0f) }
-
+        // Gesture Detection Overlay on Video ONLY when kids features are active
+        if (isVideo && currentGame == InteractiveGameType.NONE && isKidsFeaturesActive) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                cycleNextEffect()
-                            }
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = {
-                                dragAccumX = 0f
-                                dragAccumY = 0f
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                dragAccumX += dragAmount.x
-                                dragAccumY += dragAmount.y
-                            },
-                            onDragEnd = {
-                                val dx = dragAccumX
-                                val dy = dragAccumY
-                                if (kotlin.math.abs(dx) > 60f || kotlin.math.abs(dy) > 60f) {
-                                    val forward = if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
-                                        dx < 0f // Swipe left -> forward
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            var totalDragX = 0f
+                            var totalDragY = 0f
+                            var isDrag = false
+                            val slop = viewConfiguration.touchSlop
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    if (!isDrag) {
+                                        cycleNextEffect()
                                     } else {
-                                        dy < 0f // Swipe up -> forward
+                                        if (kotlin.math.abs(totalDragX) > slop * 1.5f ||
+                                            kotlin.math.abs(totalDragY) > slop * 1.5f
+                                        ) {
+                                            val forward = if (kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY)) {
+                                                totalDragX < 0f // Swipe left -> forward
+                                            } else {
+                                                totalDragY < 0f // Swipe up -> forward
+                                            }
+                                            cycleNextBackground(forward)
+                                        }
                                     }
-                                    cycleNextBackground(forward)
+                                    break
+                                } else {
+                                    val dx = change.position.x - change.previousPosition.x
+                                    val dy = change.position.y - change.previousPosition.y
+                                    totalDragX += dx
+                                    totalDragY += dy
+                                    if (kotlin.math.abs(totalDragX) > slop || kotlin.math.abs(totalDragY) > slop) {
+                                        isDrag = true
+                                        change.consume()
+                                    }
                                 }
                             }
-                        )
+                        }
                     }
             )
         }
@@ -757,9 +791,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: ONLY present when kids stuff is active AND controls are hidden
+        // Persistent Translucent Menu Pill in Corner: ONLY present when kids features are active AND controls are hidden
         AnimatedVisibility(
-            visible = !areControlsVisible && isKidsActive,
+            visible = !areControlsVisible && isKidsFeaturesActive,
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -896,9 +930,9 @@ fun SingleCallScreen(
                             showKidsSheet = true
                         },
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (isKidsActive)
+                            containerColor = if (isKidsFeaturesActive)
                                 Color(0xFFEC4899).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (isKidsActive)
+                            contentColor = if (isKidsFeaturesActive)
                                 Color(0xFFF472B6) else Color.White
                         )
                     ) {
@@ -938,16 +972,41 @@ fun SingleCallScreen(
                 onBackgroundSelected = {
                     currentBackground = it
                     sendBackgroundSync(it)
+                    if (it != InteractiveBackgroundType.NONE) {
+                        isKidsFeaturesActive = true
+                    } else if (currentFilter == InteractiveEffectType.NONE &&
+                               remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
+                               currentGame == InteractiveGameType.NONE
+                    ) {
+                        isKidsFeaturesActive = false
+                    }
                 },
                 currentEffect = currentFilter,
                 onEffectSelected = {
                     currentFilter = it
                     sendFeedFilter(it)
+                    if (it != InteractiveEffectType.NONE) {
+                        isKidsFeaturesActive = true
+                    } else if (currentBackground == InteractiveBackgroundType.NONE &&
+                               remoteAppliedBackground == InteractiveBackgroundType.NONE &&
+                               currentGame == InteractiveGameType.NONE
+                    ) {
+                        isKidsFeaturesActive = false
+                    }
                 },
                 currentGame = currentGame,
                 onGameSelected = {
                     currentGame = it
                     sendGameSync(it)
+                    if (it != InteractiveGameType.NONE) {
+                        isKidsFeaturesActive = true
+                    } else if (currentBackground == InteractiveBackgroundType.NONE &&
+                               remoteAppliedBackground == InteractiveBackgroundType.NONE &&
+                               currentFilter == InteractiveEffectType.NONE &&
+                               remoteAppliedFilterOnMe == InteractiveEffectType.NONE
+                    ) {
+                        isKidsFeaturesActive = false
+                    }
                 },
                 sparklesEnabled = sparklesEnabled,
                 onSparklesToggled = { sparklesEnabled = it },
