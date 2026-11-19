@@ -558,6 +558,19 @@ fun SingleCallScreen(
                     }
                 }
             )
+
+            // Cartoon Background Scenery Overlay on Remote View (Replacing background like GMeet / Teams)
+            CartoonBackgroundOverlay(
+                backgroundType = activeMainBackground,
+                maskBitmap = mainMaskBitmap
+            )
+
+            // Interactive Face Filters / Effects Overlay on Remote View
+            FaceFiltersOverlay(
+                filterType = activeMainFilter,
+                face = detectedFace,
+                cameraFrame = mainCameraFrameBitmap
+            )
         } else {
             // Audio call or waiting for video view
             Box(
@@ -672,19 +685,6 @@ fun SingleCallScreen(
                 }
             }
         }
-
-        // Cartoon Background Scenery Overlay on Main Video (Replacing background like GMeet / Teams)
-        CartoonBackgroundOverlay(
-            backgroundType = activeMainBackground,
-            maskBitmap = mainMaskBitmap
-        )
-
-        // Interactive Face Filters / Effects Overlay on Main Video
-        FaceFiltersOverlay(
-            filterType = activeMainFilter,
-            face = detectedFace,
-            cameraFrame = mainCameraFrameBitmap
-        )
 
         // Gesture Detection Overlay on Video ONLY when kids features are active
         if (isVideo && currentGame == InteractiveGameType.NONE && isKidsFeaturesActive) {

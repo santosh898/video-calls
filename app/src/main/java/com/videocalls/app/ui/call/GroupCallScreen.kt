@@ -908,19 +908,6 @@ fun GroupCallScreen(
             }
         }
 
-        // Cartoon Background Scenery Overlay on Main Video (Replacing background like GMeet / Teams)
-        CartoonBackgroundOverlay(
-            backgroundType = activeMainBackground,
-            maskBitmap = mainMaskBitmap
-        )
-
-        // Interactive Face Filters Overlay
-        FaceFiltersOverlay(
-            filterType = activeMainFilter,
-            face = detectedFace,
-            cameraFrame = mainCameraFrameBitmap
-        )
-
         // Gesture Detection Overlay on Video ONLY when kids features are active
         if (isVideo && currentGame == InteractiveGameType.NONE && isKidsFeaturesActive) {
             Box(

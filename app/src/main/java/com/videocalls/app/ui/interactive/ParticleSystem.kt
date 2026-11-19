@@ -103,11 +103,14 @@ fun ParticleOverlay(
         return
     }
 
+    var frameTick by remember { mutableLongStateOf(0L) }
+
     LaunchedEffect(enabled, particleManager.particles.size) {
         if (!enabled && particleManager.particles.isEmpty()) return@LaunchedEffect
         while (isActive) {
-            withFrameNanos {
+            withFrameNanos { time ->
                 particleManager.update()
+                frameTick = time
             }
         }
     }
@@ -142,6 +145,7 @@ fun ParticleOverlay(
             .fillMaxSize()
             .then(touchModifier)
     ) {
+        val _tick = frameTick
         for (p in particleManager.particles) {
             drawParticle(p)
         }

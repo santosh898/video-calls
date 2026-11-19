@@ -41,6 +41,7 @@ class BubbleGameManager(
     var popCount by mutableStateOf(0)
     private var nextId = 1
     private var lastSpawnTime = 0L
+    private var lastUpdateTime = 0L
 
     private val bubbleColors = listOf(
         Color(0x9938BDF8), // Cyan
@@ -52,8 +53,8 @@ class BubbleGameManager(
     )
 
     fun spawnBubble(now: Long, viewportWidth: Float) {
-        if (bubbles.size >= 6) return
-        if (now - lastSpawnTime < 1100L) return
+        if (bubbles.size >= 8) return // 25% increase in bubble count (from 6 to 8)
+        if (now - lastSpawnTime < 850L) return // Faster spawn interval (from 1100L to 850L)
         lastSpawnTime = now
 
         // Big toddler-friendly size: between 45dp and 75dp equivalent in px
@@ -65,7 +66,7 @@ class BubbleGameManager(
             x = Random.nextFloat() * 0.74f + 0.13f,
             y = 1.12f, // spawn below bottom edge
             radius = rad,
-            speed = Random.nextFloat() * 0.0018f + 0.0014f, // lively, playful float speed
+            speed = Random.nextFloat() * 0.00235f + 0.00185f, // 30% faster speed
             swayAmplitude = Random.nextFloat() * 0.02f + 0.01f,
             swayFrequency = Random.nextFloat() * 0.003f + 0.0015f,
             color = bubbleColors[Random.nextInt(bubbleColors.size)]
@@ -74,12 +75,18 @@ class BubbleGameManager(
     }
 
     fun update(timeMillis: Long, viewportWidth: Float) {
+        if (lastUpdateTime == 0L) {
+            lastUpdateTime = timeMillis
+        }
+        val dt = ((timeMillis - lastUpdateTime).toFloat() / 16.67f).coerceIn(0.5f, 2.5f)
+        lastUpdateTime = timeMillis
+
         spawnBubble(timeMillis, viewportWidth)
         val iterator = bubbles.iterator()
         while (iterator.hasNext()) {
             val b = iterator.next()
-            b.y -= b.speed
-            b.x += sin(timeMillis * b.swayFrequency) * b.swayAmplitude
+            b.y -= b.speed * dt
+            b.x += sin((timeMillis * b.swayFrequency).toDouble()).toFloat() * b.swayAmplitude * dt
             b.x = b.x.coerceIn(0.06f, 0.94f)
 
             if (b.y < -0.2f) {
@@ -129,11 +136,13 @@ fun BubblePopOverlay(
     onTap: (() -> Unit)? = null
 ) {
     var screenWidth by remember { mutableFloatStateOf(1080f) }
+    var frameTick by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(screenWidth) {
         while (isActive) {
             withInfiniteAnimationFrameMillis { time ->
                 manager.update(time, screenWidth)
+                frameTick = time
             }
         }
     }
@@ -175,6 +184,7 @@ fun BubblePopOverlay(
                     }
                 }
         ) {
+            val _tick = frameTick // Invalidate on every vsync frame
             val w = size.width
             val h = size.height
             if (screenWidth != w) {
