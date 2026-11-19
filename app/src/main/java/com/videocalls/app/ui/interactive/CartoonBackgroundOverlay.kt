@@ -32,10 +32,8 @@ fun CartoonBackgroundOverlay(
         InteractiveBackgroundType.CYBER_CITY -> R.drawable.bg_cyber_city
         InteractiveBackgroundType.COZY_ROOM -> R.drawable.bg_cozy_room
         InteractiveBackgroundType.FANTASY_CASTLE -> R.drawable.bg_fantasy
-        InteractiveBackgroundType.JUNGLE -> R.drawable.bg_jungle
         InteractiveBackgroundType.CANDY_LAND -> R.drawable.bg_candy
         InteractiveBackgroundType.RAINBOW -> R.drawable.bg_rainbow
-        InteractiveBackgroundType.DINO -> R.drawable.bg_dino
         InteractiveBackgroundType.NONE -> null
     } ?: return
 
