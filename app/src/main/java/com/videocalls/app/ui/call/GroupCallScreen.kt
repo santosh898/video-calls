@@ -184,6 +184,12 @@ fun GroupCallScreen(
     val pipFaceTracker = remember { FaceTracker() }
     val pipDetectedFace by pipFaceTracker.detectedFace.collectAsState()
 
+    val mainSegTracker = remember { SelfieSegmentationTracker() }
+    val mainMaskBitmap by mainSegTracker.maskBitmap.collectAsState()
+
+    val pipSegTracker = remember { SelfieSegmentationTracker() }
+    val pipMaskBitmap by pipSegTracker.maskBitmap.collectAsState()
+
     fun sendFeedFilter(filter: InteractiveEffectType) {
         val msg = JSONObject().apply {
             put("type", "SET_FEED_FILTER")
@@ -261,6 +267,8 @@ fun GroupCallScreen(
             CallService.stop(context)
             faceTracker.release()
             pipFaceTracker.release()
+            mainSegTracker.release()
+            pipSegTracker.release()
             rtcClient.close()
             onCallEnded()
         }
@@ -435,6 +443,8 @@ fun GroupCallScreen(
         onDispose {
             faceTracker.release()
             pipFaceTracker.release()
+            mainSegTracker.release()
+            pipSegTracker.release()
             if (!isEnded) {
                 isEnded = true
                 coroutineScope.launch {
@@ -464,6 +474,27 @@ fun GroupCallScreen(
             pipFaceTracker.detach()
         } else {
             pipFaceTracker.attach(localVideoTrack, mirror = true)
+        }
+    }
+
+    LaunchedEffect(activeMainBackground, remoteVideoTracks, pinnedId) {
+        if (activeMainBackground == InteractiveBackgroundType.NONE) {
+            mainSegTracker.detach()
+        } else {
+            val targetTrack = if (pinnedId != null && pinnedId != "local" && pinnedId != currentUid) {
+                remoteVideoTracks[pinnedId]
+            } else {
+                remoteVideoTracks.values.firstOrNull()
+            }
+            mainSegTracker.attach(targetTrack, mirror = false)
+        }
+    }
+
+    LaunchedEffect(activePipBackground, localVideoTrack) {
+        if (activePipBackground == InteractiveBackgroundType.NONE) {
+            pipSegTracker.detach()
+        } else {
+            pipSegTracker.attach(localVideoTrack, mirror = true)
         }
     }
 
@@ -834,9 +865,10 @@ fun GroupCallScreen(
             }
         }
 
-        // Cartoon Background Scenery Overlay on Main Video
+        // Cartoon Background Scenery Overlay on Main Video (Replacing background like GMeet / Teams)
         CartoonBackgroundOverlay(
-            backgroundType = activeMainBackground
+            backgroundType = activeMainBackground,
+            maskBitmap = mainMaskBitmap
         )
 
         // Interactive Face Filters Overlay
@@ -845,8 +877,13 @@ fun GroupCallScreen(
             face = detectedFace
         )
 
-        // Gesture Detection Overlay on Video when not playing games (Swipe = background, Tap = effect)
-        if (isVideo && currentGame == InteractiveGameType.NONE) {
+        // Gesture Detection Overlay on Video ONLY when at least one kid's filter or background is active
+        val hasActiveKidsEffectOrBg = currentFilter != InteractiveEffectType.NONE ||
+                remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
+                currentBackground != InteractiveBackgroundType.NONE ||
+                remoteAppliedBackground != InteractiveBackgroundType.NONE
+
+        if (isVideo && currentGame == InteractiveGameType.NONE && hasActiveKidsEffectOrBg) {
             var dragAccumX by remember { mutableFloatStateOf(0f) }
             var dragAccumY by remember { mutableFloatStateOf(0f) }
 

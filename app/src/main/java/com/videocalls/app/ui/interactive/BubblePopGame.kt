@@ -52,22 +52,22 @@ class BubbleGameManager(
     )
 
     fun spawnBubble(now: Long, viewportWidth: Float) {
-        if (bubbles.size >= 16) return
-        if (now - lastSpawnTime < 550L) return
+        if (bubbles.size >= 6) return
+        if (now - lastSpawnTime < 1100L) return
         lastSpawnTime = now
 
-        // Big toddler-friendly size: between 50dp and 85dp equivalent in px
-        val baseSize = if (viewportWidth > 0) viewportWidth * 0.16f else 120f
-        val rad = baseSize * (Random.nextFloat() * 0.5f + 0.8f)
+        // Big toddler-friendly size: between 45dp and 75dp equivalent in px
+        val baseSize = if (viewportWidth > 0) viewportWidth * 0.15f else 110f
+        val rad = baseSize * (Random.nextFloat() * 0.4f + 0.8f)
 
         val b = Bubble(
             id = nextId++,
-            x = Random.nextFloat() * 0.76f + 0.12f,
+            x = Random.nextFloat() * 0.74f + 0.13f,
             y = 1.12f, // spawn below bottom edge
             radius = rad,
-            speed = Random.nextFloat() * 0.0007f + 0.00035f, // very gentle, slow float
-            swayAmplitude = Random.nextFloat() * 0.025f + 0.01f,
-            swayFrequency = Random.nextFloat() * 0.002f + 0.001f,
+            speed = Random.nextFloat() * 0.0018f + 0.0014f, // lively, playful float speed
+            swayAmplitude = Random.nextFloat() * 0.02f + 0.01f,
+            swayFrequency = Random.nextFloat() * 0.003f + 0.0015f,
             color = bubbleColors[Random.nextInt(bubbleColors.size)]
         )
         bubbles.add(b)

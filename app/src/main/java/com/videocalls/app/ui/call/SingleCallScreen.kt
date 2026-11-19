@@ -178,6 +178,12 @@ fun SingleCallScreen(
     val pipFaceTracker = remember { FaceTracker() }
     val pipDetectedFace by pipFaceTracker.detectedFace.collectAsState()
 
+    val mainSegTracker = remember { SelfieSegmentationTracker() }
+    val mainMaskBitmap by mainSegTracker.maskBitmap.collectAsState()
+
+    val pipSegTracker = remember { SelfieSegmentationTracker() }
+    val pipMaskBitmap by pipSegTracker.maskBitmap.collectAsState()
+
     fun sendFeedFilter(filter: InteractiveEffectType) {
         val msg = JSONObject().apply {
             put("type", "SET_FEED_FILTER")
@@ -261,6 +267,8 @@ fun SingleCallScreen(
             CallService.stop(context)
             faceTracker.release()
             pipFaceTracker.release()
+            mainSegTracker.release()
+            pipSegTracker.release()
             rtcClient.close()
             onCallEnded()
         }
@@ -414,6 +422,8 @@ fun SingleCallScreen(
         onDispose {
             faceTracker.release()
             pipFaceTracker.release()
+            mainSegTracker.release()
+            pipSegTracker.release()
             if (!isEnded) {
                 isEnded = true
                 CallService.stop(context)
@@ -451,6 +461,22 @@ fun SingleCallScreen(
             pipFaceTracker.detach()
         } else {
             pipFaceTracker.attach(localVideoTrack, mirror = true)
+        }
+    }
+
+    LaunchedEffect(activeMainBackground, remoteTrack) {
+        if (activeMainBackground == InteractiveBackgroundType.NONE) {
+            mainSegTracker.detach()
+        } else {
+            mainSegTracker.attach(remoteTrack, mirror = false)
+        }
+    }
+
+    LaunchedEffect(activePipBackground, localVideoTrack) {
+        if (activePipBackground == InteractiveBackgroundType.NONE) {
+            pipSegTracker.detach()
+        } else {
+            pipSegTracker.attach(localVideoTrack, mirror = true)
         }
     }
 
@@ -586,7 +612,8 @@ fun SingleCallScreen(
                         isOverlay = true
                     )
                     CartoonBackgroundOverlay(
-                        backgroundType = activePipBackground
+                        backgroundType = activePipBackground,
+                        maskBitmap = pipMaskBitmap
                     )
                     FaceFiltersOverlay(
                         filterType = activePipFilter,
@@ -596,9 +623,10 @@ fun SingleCallScreen(
             }
         }
 
-        // Cartoon Background Scenery Overlay on Main Video
+        // Cartoon Background Scenery Overlay on Main Video (Replacing background like GMeet / Teams)
         CartoonBackgroundOverlay(
-            backgroundType = activeMainBackground
+            backgroundType = activeMainBackground,
+            maskBitmap = mainMaskBitmap
         )
 
         // Interactive Face Filters / Effects Overlay on Main Video
@@ -607,8 +635,13 @@ fun SingleCallScreen(
             face = detectedFace
         )
 
-        // Gesture Detection Overlay on Video when not playing games (Swipe = background, Tap = effect)
-        if (isVideo && currentGame == InteractiveGameType.NONE) {
+        // Gesture Detection Overlay on Video ONLY when at least one kid's filter or background is active
+        val hasActiveKidsEffectOrBg = currentFilter != InteractiveEffectType.NONE ||
+                remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
+                currentBackground != InteractiveBackgroundType.NONE ||
+                remoteAppliedBackground != InteractiveBackgroundType.NONE
+
+        if (isVideo && currentGame == InteractiveGameType.NONE && hasActiveKidsEffectOrBg) {
             var dragAccumX by remember { mutableFloatStateOf(0f) }
             var dragAccumY by remember { mutableFloatStateOf(0f) }
 
