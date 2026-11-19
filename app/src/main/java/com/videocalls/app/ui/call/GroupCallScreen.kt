@@ -988,20 +988,7 @@ fun GroupCallScreen(
                 BubblePopOverlay(
                     manager = bubbleManager,
                     particleManager = particleManager,
-                    onTap = {
-                        // Gameplay tap: do NOT toggle call controls
-                    },
-                    onExit = {
-                        currentGame = InteractiveGameType.NONE
-                        sendGameSync(InteractiveGameType.NONE)
-                        if (currentFilter == InteractiveEffectType.NONE &&
-                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
-                            currentBackground == InteractiveBackgroundType.NONE &&
-                            remoteAppliedBackground == InteractiveBackgroundType.NONE
-                        ) {
-                            isKidsFeaturesActive = false
-                        }
-                    }
+                    onTap = null
                 )
             }
             InteractiveGameType.PEEK_A_BOO -> {
@@ -1015,18 +1002,7 @@ fun GroupCallScreen(
                         }.toString()
                         rtcClient.sendDataMessage(null, msg)
                     },
-                    particleManager = particleManager,
-                    onExit = {
-                        currentGame = InteractiveGameType.NONE
-                        sendGameSync(InteractiveGameType.NONE)
-                        if (currentFilter == InteractiveEffectType.NONE &&
-                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
-                            currentBackground == InteractiveBackgroundType.NONE &&
-                            remoteAppliedBackground == InteractiveBackgroundType.NONE
-                        ) {
-                            isKidsFeaturesActive = false
-                        }
-                    }
+                    particleManager = particleManager
                 )
             }
             InteractiveGameType.NONE -> {}
@@ -1050,9 +1026,9 @@ fun GroupCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: present when kids features are active AND controls are hidden (or during game)
+        // Persistent Translucent Menu Pill in Corner: ONLY present when kids features are active AND controls are hidden
         AnimatedVisibility(
-            visible = (!areControlsVisible || currentGame != InteractiveGameType.NONE) && isKidsFeaturesActive,
+            visible = !areControlsVisible && isKidsFeaturesActive,
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -1062,12 +1038,8 @@ fun GroupCallScreen(
         ) {
             Surface(
                 onClick = {
-                    if (currentGame != InteractiveGameType.NONE) {
-                        showKidsSheet = true
-                    } else {
-                        areControlsVisible = true
-                        resetControlsTimer()
-                    }
+                    areControlsVisible = true
+                    resetControlsTimer()
                 },
                 shape = RoundedCornerShape(20.dp),
                 color = Color(0xFF1E293B).copy(alpha = 0.75f),
@@ -1080,13 +1052,13 @@ fun GroupCallScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = if (currentGame != InteractiveGameType.NONE) Icons.Rounded.Face else Icons.Rounded.Menu,
+                        imageVector = Icons.Rounded.Menu,
                         contentDescription = "Show Controls",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = if (currentGame != InteractiveGameType.NONE) "Kids Menu" else "Controls",
+                        text = "Controls",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
@@ -1095,9 +1067,9 @@ fun GroupCallScreen(
             }
         }
 
-        // Bottom Call Controls Bar (Hidden during games so children never accidentally hang up)
+        // Bottom Call Controls Bar
         AnimatedVisibility(
-            visible = areControlsVisible && currentGame == InteractiveGameType.NONE,
+            visible = areControlsVisible,
             enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { it },
             exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { it },
             modifier = Modifier
