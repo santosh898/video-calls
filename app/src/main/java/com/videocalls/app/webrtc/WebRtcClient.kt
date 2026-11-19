@@ -70,7 +70,21 @@ class WebRtcClient(
         PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
         PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer(),
         PeerConnection.IceServer.builder("stun:stun3.l.google.com:19302").createIceServer(),
-        PeerConnection.IceServer.builder("stun:stun4.l.google.com:19302").createIceServer()
+        PeerConnection.IceServer.builder("stun:stun4.l.google.com:19302").createIceServer(),
+        // Free OpenRelay public STUN/TURN servers for Symmetric NAT and cellular carrier traversal
+        PeerConnection.IceServer.builder("stun:openrelay.metered.ca:80").createIceServer(),
+        PeerConnection.IceServer.builder("turn:openrelay.metered.ca:80")
+            .setUsername("openrelayproject")
+            .setPassword("openrelayproject")
+            .createIceServer(),
+        PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443")
+            .setUsername("openrelayproject")
+            .setPassword("openrelayproject")
+            .createIceServer(),
+        PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
+            .setUsername("openrelayproject")
+            .setPassword("openrelayproject")
+            .createIceServer()
     )
 
     init {
@@ -88,6 +102,7 @@ class WebRtcClient(
 
     fun startLocalMedia(isAudioOnly: Boolean = false) {
         if (isClosed) return
+        setupAudioDevice()
 
         // Setup local audio
         if (localAudioTrack == null) {
@@ -183,6 +198,7 @@ class WebRtcClient(
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         onPeerConnected?.invoke(targetUid)
                         localVideoTrack?.setEnabled(true)
+                        localAudioTrack?.setEnabled(true)
                     }
                     PeerConnection.IceConnectionState.DISCONNECTED,
                     PeerConnection.IceConnectionState.FAILED,

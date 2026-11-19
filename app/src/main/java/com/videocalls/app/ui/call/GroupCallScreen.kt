@@ -421,21 +421,27 @@ fun GroupCallScreen(
 
         // Listen for signals (offers/answers)
         launch {
+            val handledOffers = mutableSetOf<String>()
+            val handledAnswers = mutableSetOf<String>()
             signalingRepo.observeIncomingSignals(callId, currentUid).collect { signal ->
                 val type = signal["type"] as? String
                 val sdpStr = signal["sdp"] as? String
                 val senderUid = signal["senderUid"] as? String ?: ""
 
                 if (type == "offer" && sdpStr != null) {
-                    val remoteSdp = SessionDescription(SessionDescription.Type.OFFER, sdpStr)
-                    rtcClient.createAnswer(senderUid, remoteSdp) { answer ->
-                        coroutineScope.launch {
-                            signalingRepo.sendAnswer(callId, currentUid, senderUid, answer)
+                    if (handledOffers.add(senderUid)) {
+                        val remoteSdp = SessionDescription(SessionDescription.Type.OFFER, sdpStr)
+                        rtcClient.createAnswer(senderUid, remoteSdp) { answer ->
+                            coroutineScope.launch {
+                                signalingRepo.sendAnswer(callId, currentUid, senderUid, answer)
+                            }
                         }
                     }
                 } else if (type == "answer" && sdpStr != null) {
-                    val remoteSdp = SessionDescription(SessionDescription.Type.ANSWER, sdpStr)
-                    rtcClient.setRemoteAnswer(senderUid, remoteSdp)
+                    if (handledAnswers.add(senderUid)) {
+                        val remoteSdp = SessionDescription(SessionDescription.Type.ANSWER, sdpStr)
+                        rtcClient.setRemoteAnswer(senderUid, remoteSdp)
+                    }
                 }
             }
         }

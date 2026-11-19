@@ -355,12 +355,14 @@ class CallSignalingRepository(
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
                 snapshot.documentChanges.forEach { change ->
-                    val data = change.document.data
-                    val sdp = data["sdp"] as? String ?: ""
-                    val sdpMid = data["sdpMid"] as? String ?: ""
-                    val sdpMLineIndex = (data["sdpMLineIndex"] as? Long)?.toInt() ?: 0
-                    if (sdp.isNotBlank()) {
-                        trySend(IceCandidate(sdpMid, sdpMLineIndex, sdp))
+                    if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                        val data = change.document.data
+                        val sdp = data["sdp"] as? String ?: ""
+                        val sdpMid = data["sdpMid"] as? String ?: ""
+                        val sdpMLineIndex = (data["sdpMLineIndex"] as? Long)?.toInt() ?: 0
+                        if (sdp.isNotBlank()) {
+                            trySend(IceCandidate(sdpMid, sdpMLineIndex, sdp))
+                        }
                     }
                 }
             }
@@ -443,15 +445,17 @@ class CallSignalingRepository(
                     return@addSnapshotListener
                 }
                 snapshot?.documentChanges?.forEach { change ->
-                    val data = change.document.data
-                    val model = IceCandidateModel(
-                        sdpMid = data["sdpMid"] as? String ?: "",
-                        sdpMLineIndex = (data["sdpMLineIndex"] as? Long)?.toInt() ?: 0,
-                        sdp = data["sdp"] as? String ?: "",
-                        senderUid = data["senderUid"] as? String ?: "",
-                        targetUid = data["targetUid"] as? String ?: ""
-                    )
-                    trySend(model)
+                    if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                        val data = change.document.data
+                        val model = IceCandidateModel(
+                            sdpMid = data["sdpMid"] as? String ?: "",
+                            sdpMLineIndex = (data["sdpMLineIndex"] as? Long)?.toInt() ?: 0,
+                            sdp = data["sdp"] as? String ?: "",
+                            senderUid = data["senderUid"] as? String ?: "",
+                            targetUid = data["targetUid"] as? String ?: ""
+                        )
+                        trySend(model)
+                    }
                 }
             }
         awaitClose { listener.remove() }

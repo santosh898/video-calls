@@ -430,19 +430,23 @@ fun SingleCallScreen(
                     }
                 }
             }
-            // Caller: listen for receiver's answer
+            // Caller: listen for receiver's answer (guard against multiple Firestore snapshot updates)
+            var answerSet = false
             launch {
                 signalingRepo.observeAnswer(callId).collect { answer ->
-                    if (answer != null) {
+                    if (answer != null && !answerSet) {
+                        answerSet = true
                         rtcClient.setRemoteAnswer(targetName, answer)
                     }
                 }
             }
         } else {
-            // Receiver: listen for caller's offer, create answer and publish
+            // Receiver: listen for caller's offer, create answer and publish (guard against multiple Firestore snapshot updates)
+            var answerCreated = false
             launch {
                 signalingRepo.observeOffer(callId).collect { offer ->
-                    if (offer != null) {
+                    if (offer != null && !answerCreated) {
+                        answerCreated = true
                         rtcClient.createAnswer(targetName, offer) { answer ->
                             coroutineScope.launch {
                                 signalingRepo.sendAnswer(callId, answer)

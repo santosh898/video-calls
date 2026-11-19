@@ -129,7 +129,9 @@ fun WebRtcSurfaceView(
             } else {
                 renderer.setOnClickListener(null)
             }
-            rendererRef = renderer
+            if (rendererRef !== renderer) {
+                rendererRef = renderer
+            }
         },
         onRelease = { renderer ->
             boundTrack?.removeSink(renderer)
