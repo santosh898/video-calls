@@ -95,12 +95,16 @@ class ParticleManager {
 fun ParticleOverlay(
     modifier: Modifier = Modifier,
     particleManager: ParticleManager,
-    enabled: Boolean = true,
+    enabled: Boolean = false,
     onTap: ((Offset) -> Unit)? = null,
     onTapBurst: ((normX: Float, normY: Float) -> Unit)? = null
 ) {
-    LaunchedEffect(enabled) {
-        if (!enabled) return@LaunchedEffect
+    if (!enabled && particleManager.particles.isEmpty()) {
+        return
+    }
+
+    LaunchedEffect(enabled, particleManager.particles.size) {
+        if (!enabled && particleManager.particles.isEmpty()) return@LaunchedEffect
         while (isActive) {
             withFrameNanos {
                 particleManager.update()
@@ -108,11 +112,9 @@ fun ParticleOverlay(
         }
     }
 
-    Canvas(
-        modifier = modifier
-            .fillMaxSize()
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
+    val touchModifier = if (enabled) {
+        Modifier
+            .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     KidsSoundManager.playSparkle()
                     particleManager.burst(offset.x, offset.y, 16)
@@ -125,13 +127,20 @@ fun ParticleOverlay(
                     }
                 }
             }
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
+            .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     change.consume()
                     particleManager.burst(change.position.x, change.position.y, 4)
                 }
             }
+    } else {
+        Modifier
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .then(touchModifier)
     ) {
         for (p in particleManager.particles) {
             drawParticle(p)

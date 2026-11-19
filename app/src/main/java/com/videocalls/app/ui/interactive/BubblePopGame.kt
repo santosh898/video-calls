@@ -117,7 +117,8 @@ class BubbleGameManager(
 fun BubblePopOverlay(
     modifier: Modifier = Modifier,
     manager: BubbleGameManager,
-    particleManager: ParticleManager
+    particleManager: ParticleManager,
+    onTap: (() -> Unit)? = null
 ) {
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -156,6 +157,7 @@ fun BubblePopOverlay(
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
+                        onTap?.invoke()
                         val popped = manager.handleTap(offset.x, offset.y, size.width.toFloat(), size.height.toFloat())
                         if (popped) {
                             particleManager.burst(offset.x, offset.y, 22)

@@ -23,7 +23,8 @@ fun WebRtcSurfaceView(
     eglBase: EglBase,
     isMirror: Boolean = false,
     scalingType: RendererCommon.ScalingType = RendererCommon.ScalingType.SCALE_ASPECT_FILL,
-    isOverlay: Boolean = false
+    isOverlay: Boolean = false,
+    onClick: (() -> Unit)? = null
 ) {
     var boundTrack by remember { mutableStateOf<VideoTrack?>(null) }
     var rendererRef by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
@@ -72,6 +73,9 @@ fun WebRtcSurfaceView(
                 } else {
                     setZOrderMediaOverlay(false)
                 }
+                if (onClick != null) {
+                    setOnClickListener { onClick() }
+                }
                 rendererRef = this
             }
         },
@@ -80,6 +84,11 @@ fun WebRtcSurfaceView(
             renderer.setMirror(isMirror)
             if (isOverlay) {
                 renderer.setZOrderMediaOverlay(true)
+            }
+            if (onClick != null) {
+                renderer.setOnClickListener { onClick() }
+            } else {
+                renderer.setOnClickListener(null)
             }
             rendererRef = renderer
         },

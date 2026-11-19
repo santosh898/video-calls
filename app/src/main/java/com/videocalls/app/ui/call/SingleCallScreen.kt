@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -134,10 +135,10 @@ fun SingleCallScreen(
     var offerCreated by remember { mutableStateOf(false) }
     var isEnded by remember { mutableStateOf(false) }
 
-    // Interactive & Toddler Features
+    // Interactive & Toddler Features (Inactive by default)
     var currentFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
     var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
-    var sparklesEnabled by remember { mutableStateOf(true) }
+    var sparklesEnabled by remember { mutableStateOf(false) }
     var toddlerLockEnabled by remember { mutableStateOf(false) }
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
@@ -446,7 +447,13 @@ fun SingleCallScreen(
                 modifier = Modifier.fillMaxSize(),
                 videoTrack = remoteTrack,
                 eglBase = rtcClient.eglBase,
-                isOverlay = false
+                isOverlay = false,
+                onClick = {
+                    areControlsVisible = !areControlsVisible
+                    if (areControlsVisible) {
+                        resetControlsTimer()
+                    }
+                }
             )
         } else {
             // Audio call or waiting for video view
@@ -565,7 +572,11 @@ fun SingleCallScreen(
             InteractiveGameType.BUBBLE_POP -> {
                 BubblePopOverlay(
                     manager = bubbleManager,
-                    particleManager = particleManager
+                    particleManager = particleManager,
+                    onTap = {
+                        areControlsVisible = true
+                        resetControlsTimer()
+                    }
                 )
             }
             InteractiveGameType.PEEK_A_BOO -> {
@@ -573,6 +584,7 @@ fun SingleCallScreen(
                     isOpen = isPeekABooOpen,
                     onToggle = { nextState ->
                         isPeekABooOpen = nextState
+                        resetControlsTimer()
                         val msg = JSONObject().apply {
                             put("type", "PEEK_A_BOO")
                             put("isOpen", nextState)
@@ -592,6 +604,10 @@ fun SingleCallScreen(
         ParticleOverlay(
             particleManager = particleManager,
             enabled = sparklesEnabled,
+            onTap = {
+                areControlsVisible = true
+                resetControlsTimer()
+            },
             onTapBurst = { normX, normY ->
                 val msg = JSONObject().apply {
                     put("type", "SPARKLE_BURST")
@@ -601,6 +617,47 @@ fun SingleCallScreen(
                 rtcClient.sendDataMessage(null, msg)
             }
         )
+
+        // Persistent Translucent Menu Pill in Corner when controls are hidden
+        AnimatedVisibility(
+            visible = !areControlsVisible,
+            enter = fadeIn(animationSpec = tween(250)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 16.dp, start = 16.dp)
+        ) {
+            Surface(
+                onClick = {
+                    areControlsVisible = true
+                    resetControlsTimer()
+                },
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.75f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Menu,
+                        contentDescription = "Show Controls",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Controls",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
 
         // Bottom Controls Bar
         AnimatedVisibility(
