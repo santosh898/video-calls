@@ -26,6 +26,7 @@ enum class InteractiveBackgroundType(val displayName: String, val icon: String) 
     CYBER_CITY("Cyber City", "🌆"),
     COZY_ROOM("Cozy Room", "🛋️"),
     FANTASY_CASTLE("Magic Castle", "🏰"),
+    CARTOON_CARS("Cartoon Cars", "🚗"),
     CANDY_LAND("Candy Land", "🍭"),
     RAINBOW("Rainbow Sky", "🌈")
 }
