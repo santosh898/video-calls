@@ -6,18 +6,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import com.videocalls.app.R
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -29,9 +31,17 @@ fun FaceFiltersOverlay(
 ) {
     if (filterType == InteractiveEffectType.NONE) return
 
+    // High quality real AR accessory assets (Snapchat-style ears, nose, tongue, glasses, party hat)
+    val dogEarsBitmap = ImageBitmap.imageResource(id = R.drawable.filter_dog_ears)
+    val dogNoseBitmap = ImageBitmap.imageResource(id = R.drawable.filter_dog_nose)
+    val dogTongueBitmap = ImageBitmap.imageResource(id = R.drawable.filter_dog_tongue)
+    val sunglassesBitmap = ImageBitmap.imageResource(id = R.drawable.filter_sunglasses)
+    val partyHatBitmap = ImageBitmap.imageResource(id = R.drawable.filter_party_hat)
+    val catEarsBitmap = ImageBitmap.imageResource(id = R.drawable.filter_cat_ears)
+
     val infiniteTransition = rememberInfiniteTransition(label = "faceAnim")
 
-    // Fast continuous loop (1.2s) for rain / snow / sparkles
+    // Fast continuous loop (1.2s) for rain / snow
     val fastLoop by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -42,7 +52,7 @@ fun FaceFiltersOverlay(
         label = "fastLoop"
     )
 
-    // Medium loop (2.4s) for kaleidoscope / hat bounce
+    // Medium loop (2.4s) for kaleidoscope
     val medLoop by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -54,8 +64,8 @@ fun FaceFiltersOverlay(
     )
 
     val earBounce by infiniteTransition.animateFloat(
-        initialValue = -3f,
-        targetValue = 3f,
+        initialValue = -4f,
+        targetValue = 4f,
         animationSpec = infiniteRepeatable(
             animation = tween(400, easing = EaseInOutSine),
             repeatMode = RepeatMode.Reverse
@@ -74,7 +84,7 @@ fun FaceFiltersOverlay(
         val h = size.height
         if (w <= 0 || h <= 0) return@Canvas
 
-        // 1. Fullscreen Atmospheric Effects (Work even if face is momentarily obscured)
+        // 1. Fullscreen Atmospheric Effects
         when (filterType) {
             InteractiveEffectType.RAIN -> drawRainEffect(w, h, fastLoop)
             InteractiveEffectType.SNOW -> drawSnowEffect(w, h, fastLoop)
@@ -83,7 +93,7 @@ fun FaceFiltersOverlay(
             else -> {}
         }
 
-        // 2. Face-Tracked AR Effects (Require detected face)
+        // 2. Face-Tracked Real AR Effects
         if (face != null) {
             val faceRect = Rect(
                 left = face.bounds.left * w,
@@ -101,15 +111,65 @@ fun FaceFiltersOverlay(
             val mouthBottom = face.mouthBottom?.let { Offset(it.x * w, it.y * h) }
                 ?: Offset(faceRect.center.x, faceRect.bottom - faceRect.height * 0.15f)
 
-            rotate(face.headEulerZ, pivot = faceRect.center) {
-                when (filterType) {
-                    InteractiveEffectType.SHADES -> drawCoolShades(leftEye, rightEye, faceRect)
-                    InteractiveEffectType.PARTY_HAT -> drawPartyHat(faceRect, earBounce)
-                    InteractiveEffectType.TEARS -> drawDramaTears(leftEye, rightEye, faceRect, fastLoop)
-                    InteractiveEffectType.DOGGY -> drawDoggyFilter(faceRect, nose, mouthBottom, earBounce, tongueDrop)
-                    InteractiveEffectType.KITTY -> drawKittyFilter(faceRect, nose, earBounce)
-                    else -> {}
+            when (filterType) {
+                InteractiveEffectType.SHADES -> {
+                    // High-res realistic black sunglasses tracking eye centers and head rotation
+                    val eyeCenter = Offset((leftEye.x + rightEye.x) * 0.5f, (leftEye.y + rightEye.y) * 0.5f)
+                    val glassesW = faceRect.width * 0.96f
+                    drawAsset(sunglassesBitmap, eyeCenter, glassesW, rotation = face.headEulerZ)
                 }
+
+                InteractiveEffectType.PARTY_HAT -> {
+                    // Real festive cone party hat sitting on forehead/head with physics bounce
+                    val hatW = faceRect.width * 0.62f
+                    val hatH = hatW * (partyHatBitmap.height.toFloat() / partyHatBitmap.width.toFloat())
+                    val hatCenter = Offset(faceRect.center.x, faceRect.top - hatH * 0.45f + earBounce)
+                    drawAsset(partyHatBitmap, hatCenter, hatW, rotation = face.headEulerZ)
+                }
+
+                InteractiveEffectType.DOGGY -> {
+                    // Real Snapchat Dog Filter: Floppy ears on head + nose on nose bridge + tongue when mouth open
+                    val earsW = faceRect.width * 1.15f
+                    val earsH = earsW * (dogEarsBitmap.height.toFloat() / dogEarsBitmap.width.toFloat())
+                    val earsCenter = Offset(faceRect.center.x, faceRect.top - earsH * 0.22f + earBounce)
+                    drawAsset(dogEarsBitmap, earsCenter, earsW, rotation = face.headEulerZ)
+
+                    val noseW = faceRect.width * 0.32f
+                    drawAsset(dogNoseBitmap, nose, noseW, rotation = face.headEulerZ)
+
+                    if (tongueDrop > 0.05f) {
+                        val tongueW = faceRect.width * 0.32f * tongueDrop
+                        val tongueH = tongueW * (dogTongueBitmap.height.toFloat() / dogTongueBitmap.width.toFloat())
+                        val tongueCenter = Offset(nose.x, mouthBottom.y + tongueH * 0.35f)
+                        drawAsset(dogTongueBitmap, tongueCenter, tongueW, rotation = face.headEulerZ)
+                    }
+                }
+
+                InteractiveEffectType.KITTY -> {
+                    // Real cute cat ears on head + pink nose + whiskers
+                    val earsW = faceRect.width * 1.05f
+                    val earsH = earsW * (catEarsBitmap.height.toFloat() / catEarsBitmap.width.toFloat())
+                    val earsCenter = Offset(faceRect.center.x, faceRect.top - earsH * 0.28f - earBounce)
+                    drawAsset(catEarsBitmap, earsCenter, earsW, rotation = face.headEulerZ)
+
+                    rotate(face.headEulerZ, pivot = faceRect.center) {
+                        // Cute pink heart nose
+                        drawCircle(Color(0xFFF48FB1), faceRect.width * 0.05f, nose)
+
+                        // Whiskers (3 left, 3 right)
+                        for (i in -1..1) {
+                            val yOff = i * 14f
+                            drawLine(Color.White, Offset(nose.x - faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x - faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
+                            drawLine(Color.White, Offset(nose.x + faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x + faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
+                        }
+                    }
+                }
+
+                InteractiveEffectType.TEARS -> {
+                    drawDramaTears(leftEye, rightEye, faceRect, fastLoop, face.headEulerZ)
+                }
+
+                else -> {}
             }
         }
     }
@@ -133,7 +193,6 @@ private fun DrawScope.drawRainEffect(w: Float, h: Float, progress: Float) {
         )
     }
 
-    // A few sliding glass droplets
     val droplets = listOf(
         Offset(w * 0.22f, ((progress * 0.3f + 0.1f) % 1f) * h),
         Offset(w * 0.55f, ((progress * 0.25f + 0.4f) % 1f) * h),
@@ -145,7 +204,7 @@ private fun DrawScope.drawRainEffect(w: Float, h: Float, progress: Float) {
     }
 }
 
-// 2. SNOW: Soft drifting snowflakes and crystal vignette
+// 2. SNOW (ORIGINAL BLIZZARD): Soft drifting snowflakes and crystal vignette
 private fun DrawScope.drawSnowEffect(w: Float, h: Float, progress: Float) {
     val numFlakes = 36
     for (i in 0 until numFlakes) {
@@ -229,106 +288,16 @@ private fun DrawScope.drawTwinklesEffect(w: Float, h: Float, progress: Float, fa
     }
 }
 
-// 5. SHADES: Cool black aviator sunglasses with white diagonal sheen reflection
-private fun DrawScope.drawCoolShades(leftEye: Offset, rightEye: Offset, faceRect: Rect) {
-    val glassesCenter = Offset((leftEye.x + rightEye.x) * 0.5f, (leftEye.y + rightEye.y) * 0.5f)
-    val span = (rightEye.x - leftEye.x).coerceAtLeast(faceRect.width * 0.4f)
-    val glassWidth = span * 0.72f
-    val glassHeight = glassWidth * 0.65f
-
-    // Nose bridge
-    drawLine(
-        color = Color(0xFF1E293B),
-        start = Offset(glassesCenter.x - glassWidth * 0.35f, glassesCenter.y),
-        end = Offset(glassesCenter.x + glassWidth * 0.35f, glassesCenter.y),
-        strokeWidth = 10f
-    )
-
-    // Left Lens
-    val leftLensCenter = Offset(glassesCenter.x - glassWidth * 0.6f, glassesCenter.y)
-    drawShadesLens(leftLensCenter, glassWidth, glassHeight)
-
-    // Right Lens
-    val rightLensCenter = Offset(glassesCenter.x + glassWidth * 0.6f, glassesCenter.y)
-    drawShadesLens(rightLensCenter, glassWidth, glassHeight)
-}
-
-private fun DrawScope.drawShadesLens(center: Offset, w: Float, h: Float) {
-    // Outer black frame
-    drawRoundRect(
-        color = Color(0xFF0F172A),
-        topLeft = Offset(center.x - w * 0.5f, center.y - h * 0.5f),
-        size = Size(w, h),
-        cornerRadius = CornerRadius(16f, 16f)
-    )
-    // Dark glass
-    drawRoundRect(
-        color = Color(0xEE1E1B4B),
-        topLeft = Offset(center.x - w * 0.44f, center.y - h * 0.42f),
-        size = Size(w * 0.88f, h * 0.84f),
-        cornerRadius = CornerRadius(12f, 12f)
-    )
-    // Diagonal white sheen reflection
-    drawLine(
-        color = Color.White.copy(alpha = 0.6f),
-        start = Offset(center.x - w * 0.25f, center.y - h * 0.35f),
-        end = Offset(center.x + w * 0.2f, center.y + h * 0.35f),
-        strokeWidth = 6f
-    )
-}
-
-// 6. PARTY HAT: Striped cone hat with pom-pom on forehead/head top
-private fun DrawScope.drawPartyHat(faceRect: Rect, bounce: Float) {
-    val hatBaseCenter = Offset(faceRect.center.x, faceRect.top + faceRect.height * 0.05f)
-    val hatWidth = faceRect.width * 0.55f
-    val hatHeight = faceRect.width * 0.75f
-
-    val hatPath = Path().apply {
-        moveTo(hatBaseCenter.x, hatBaseCenter.y - hatHeight)
-        lineTo(hatBaseCenter.x + hatWidth * 0.5f, hatBaseCenter.y)
-        lineTo(hatBaseCenter.x - hatWidth * 0.5f, hatBaseCenter.y)
-        close()
-    }
-    // Cone body (vibrant yellow/orange)
-    drawPath(hatPath, Color(0xFFFBBF24))
-
-    // Diagonal festive stripes
-    val stripe1 = Path().apply {
-        moveTo(hatBaseCenter.x - hatWidth * 0.2f, hatBaseCenter.y - hatHeight * 0.4f)
-        lineTo(hatBaseCenter.x + hatWidth * 0.3f, hatBaseCenter.y - hatHeight * 0.25f)
-        lineTo(hatBaseCenter.x + hatWidth * 0.4f, hatBaseCenter.y - hatHeight * 0.15f)
-        lineTo(hatBaseCenter.x - hatWidth * 0.3f, hatBaseCenter.y - hatHeight * 0.3f)
-        close()
-    }
-    drawPath(stripe1, Color(0xFFEC4899))
-
-    // Pom-pom on hat tip
-    val tip = Offset(hatBaseCenter.x, hatBaseCenter.y - hatHeight + bounce * 2f)
-    drawCircle(Color.White, hatWidth * 0.14f, tip)
-    drawCircle(Color(0xFF38BDF8), hatWidth * 0.1f, tip)
-
-    // Zig-zag brim
-    drawRoundRect(
-        color = Color(0xFF38BDF8),
-        topLeft = Offset(hatBaseCenter.x - hatWidth * 0.52f, hatBaseCenter.y - 6f),
-        size = Size(hatWidth * 1.04f, 14f),
-        cornerRadius = CornerRadius(6f, 6f)
-    )
-}
-
-// 7. DRAMA TEARS: Bubbly cartoon water fountain cascading from eye corners
-private fun DrawScope.drawDramaTears(leftEye: Offset, rightEye: Offset, faceRect: Rect, progress: Float) {
+// 5. DRAMA TEARS: Bubbly cartoon water fountain cascading from eye corners
+private fun DrawScope.drawDramaTears(leftEye: Offset, rightEye: Offset, faceRect: Rect, progress: Float, rotationZ: Float) {
     val dropSpeed = (progress * 180f)
-
-    // Left Eye Tears
-    drawTearStream(Offset(leftEye.x - faceRect.width * 0.08f, leftEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
-
-    // Right Eye Tears
-    drawTearStream(Offset(rightEye.x + faceRect.width * 0.08f, rightEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
+    rotate(rotationZ, pivot = faceRect.center) {
+        drawTearStream(Offset(leftEye.x - faceRect.width * 0.08f, leftEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
+        drawTearStream(Offset(rightEye.x + faceRect.width * 0.08f, rightEye.y + 10f), faceRect.height * 0.6f, dropSpeed)
+    }
 }
 
 private fun DrawScope.drawTearStream(start: Offset, maxLen: Float, dropOffset: Float) {
-    // Streaming blue stream
     val path = Path().apply {
         moveTo(start.x, start.y)
         quadraticTo(start.x - 15f, start.y + maxLen * 0.5f, start.x, start.y + maxLen)
@@ -338,121 +307,11 @@ private fun DrawScope.drawTearStream(start: Offset, maxLen: Float, dropOffset: F
     }
     drawPath(path, Color(0x9938BDF8))
 
-    // Big tear drops cascading down
     for (d in 0..2) {
         val dy = (dropOffset + d * (maxLen / 3f)) % maxLen
         val tearY = start.y + dy
         drawCircle(Color(0xFF0284C7), 14f, Offset(start.x + 4f, tearY))
         drawCircle(Color.White, 5f, Offset(start.x + 1f, tearY - 4f))
-    }
-}
-
-// 8. DOGGY: Floppy puppy ears, black nose, playful tongue
-private fun DrawScope.drawDoggyFilter(faceRect: Rect, nose: Offset, mouthBottom: Offset, earBounce: Float, tongueDrop: Float) {
-    val earW = faceRect.width * 0.32f
-    val earH = faceRect.height * 0.6f
-
-    // Left Floppy Ear
-    drawFloppyEar(
-        topLeft = Offset(faceRect.left - earW * 0.25f, faceRect.top - earH * 0.15f + earBounce),
-        size = Size(earW, earH),
-        tiltAngle = -18f
-    )
-    // Right Floppy Ear
-    drawFloppyEar(
-        topLeft = Offset(faceRect.right - earW * 0.75f, faceRect.top - earH * 0.15f - earBounce),
-        size = Size(earW, earH),
-        tiltAngle = 18f
-    )
-
-    // Puppy Dog Nose
-    val noseW = faceRect.width * 0.24f
-    val noseH = noseW * 0.65f
-    drawRoundRect(
-        color = Color(0xFF1E1B18),
-        topLeft = Offset(nose.x - noseW * 0.5f, nose.y - noseH * 0.4f),
-        size = Size(noseW, noseH),
-        cornerRadius = CornerRadius(noseH * 0.5f, noseH * 0.5f)
-    )
-    // Nose highlight
-    drawOval(
-        color = Color.White.copy(alpha = 0.7f),
-        topLeft = Offset(nose.x - noseW * 0.25f, nose.y - noseH * 0.3f),
-        size = Size(noseW * 0.35f, noseH * 0.35f)
-    )
-
-    // Tongue (drops when mouth open)
-    val tongueW = faceRect.width * 0.22f
-    val maxTongueH = faceRect.height * 0.32f
-    val curTongueH = maxTongueH * (0.3f + 0.7f * tongueDrop)
-    if (tongueDrop > 0.05f) {
-        val tTop = mouthBottom.y - curTongueH * 0.15f
-        drawRoundRect(
-            color = Color(0xFFFF4081),
-            topLeft = Offset(nose.x - tongueW * 0.5f, tTop),
-            size = Size(tongueW, curTongueH),
-            cornerRadius = CornerRadius(tongueW * 0.45f, tongueW * 0.45f)
-        )
-        drawLine(
-            color = Color(0xFFC2185B),
-            start = Offset(nose.x, tTop + 4f),
-            end = Offset(nose.x, tTop + curTongueH * 0.75f),
-            strokeWidth = 3f
-        )
-    }
-}
-
-private fun DrawScope.drawFloppyEar(topLeft: Offset, size: Size, tiltAngle: Float) {
-    rotate(tiltAngle, pivot = Offset(topLeft.x + size.width * 0.5f, topLeft.y)) {
-        drawRoundRect(
-            color = Color(0xFF795548),
-            topLeft = topLeft,
-            size = size,
-            cornerRadius = CornerRadius(size.width * 0.5f, size.width * 0.5f)
-        )
-        // Inner pink ear
-        drawRoundRect(
-            color = Color(0xFFFFAB91),
-            topLeft = Offset(topLeft.x + size.width * 0.18f, topLeft.y + size.height * 0.2f),
-            size = Size(size.width * 0.64f, size.height * 0.65f),
-            cornerRadius = CornerRadius(size.width * 0.35f, size.width * 0.35f)
-        )
-    }
-}
-
-// 9. KITTY: Cute pink-inner cat ears, nose and whiskers
-private fun DrawScope.drawKittyFilter(faceRect: Rect, nose: Offset, bounce: Float) {
-    val earW = faceRect.width * 0.3f
-    val earH = faceRect.width * 0.35f
-
-    // Left Cat Ear (Triangle)
-    val lTop = Offset(faceRect.left + faceRect.width * 0.12f, faceRect.top - earH * 0.6f + bounce)
-    val lPath = Path().apply {
-        moveTo(lTop.x, lTop.y)
-        lineTo(faceRect.left - earW * 0.1f, faceRect.top + earH * 0.3f)
-        lineTo(faceRect.left + faceRect.width * 0.3f, faceRect.top + earH * 0.1f)
-        close()
-    }
-    drawPath(lPath, Color(0xFF424242))
-
-    // Right Cat Ear (Triangle)
-    val rTop = Offset(faceRect.right - faceRect.width * 0.12f, faceRect.top - earH * 0.6f - bounce)
-    val rPath = Path().apply {
-        moveTo(rTop.x, rTop.y)
-        lineTo(faceRect.right - faceRect.width * 0.3f, faceRect.top + earH * 0.1f)
-        lineTo(faceRect.right + earW * 0.1f, faceRect.top + earH * 0.3f)
-        close()
-    }
-    drawPath(rPath, Color(0xFF424242))
-
-    // Pink heart nose
-    drawCircle(Color(0xFFF48FB1), faceRect.width * 0.05f, nose)
-
-    // Whiskers (3 left, 3 right)
-    for (i in -1..1) {
-        val yOff = i * 14f
-        drawLine(Color.White, Offset(nose.x - faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x - faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
-        drawLine(Color.White, Offset(nose.x + faceRect.width * 0.08f, nose.y + yOff), Offset(nose.x + faceRect.width * 0.35f, nose.y + yOff * 1.5f), strokeWidth = 5f)
     }
 }
 
@@ -469,4 +328,40 @@ private fun DrawScope.drawSparkleStar(center: Offset, size: Float, color: Color)
         close()
     }
     drawPath(path, color)
+}
+
+// Real AR asset drawing helper
+private fun DrawScope.drawAsset(
+    image: ImageBitmap,
+    center: Offset,
+    width: Float,
+    height: Float = width * (image.height.toFloat() / image.width.toFloat()),
+    alpha: Float = 1.0f,
+    rotation: Float = 0f
+) {
+    if (width <= 0f || height <= 0f) return
+    val left = (center.x - width / 2f).toInt()
+    val top = (center.y - height / 2f).toInt()
+    val w = width.toInt().coerceAtLeast(1)
+    val h = height.toInt().coerceAtLeast(1)
+
+    if (rotation != 0f) {
+        rotate(rotation, pivot = center) {
+            drawImage(
+                image = image,
+                dstOffset = IntOffset(left, top),
+                dstSize = IntSize(w, h),
+                filterQuality = FilterQuality.Medium,
+                alpha = alpha
+            )
+        }
+    } else {
+        drawImage(
+            image = image,
+            dstOffset = IntOffset(left, top),
+            dstSize = IntSize(w, h),
+            filterQuality = FilterQuality.Medium,
+            alpha = alpha
+        )
+    }
 }
