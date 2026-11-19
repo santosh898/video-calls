@@ -133,7 +133,8 @@ fun BubblePopOverlay(
     modifier: Modifier = Modifier,
     manager: BubbleGameManager,
     particleManager: ParticleManager,
-    onTap: (() -> Unit)? = null
+    onTap: (() -> Unit)? = null,
+    onExit: (() -> Unit)? = null
 ) {
     var screenWidth by remember { mutableFloatStateOf(1080f) }
     var frameTick by remember { mutableLongStateOf(0L) }
@@ -148,26 +149,43 @@ fun BubblePopOverlay(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Score Pill Top Center
+        // Score Pill & Exit Button Top Center
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = Color(0xFF1E293B).copy(alpha = 0.85f),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 50.dp)
+                .statusBarsPadding()
+                .padding(top = 16.dp)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "🫧", fontSize = 22.sp)
+                Text(text = "🫧", fontSize = 20.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Popped: ${manager.popCount}",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    fontSize = 16.sp
                 )
+                if (onExit != null) {
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Surface(
+                        onClick = onExit,
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.18f)
+                    ) {
+                        Text(
+                            text = "✕ Exit",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
             }
         }
 

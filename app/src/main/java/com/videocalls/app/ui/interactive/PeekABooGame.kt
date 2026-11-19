@@ -30,7 +30,8 @@ fun PeekABooOverlay(
     modifier: Modifier = Modifier,
     isOpen: Boolean,
     onToggle: (Boolean) -> Unit,
-    particleManager: ParticleManager
+    particleManager: ParticleManager,
+    onExit: (() -> Unit)? = null
 ) {
     val curtainProgress by animateFloatAsState(
         targetValue = if (isOpen) 0f else 1f,
@@ -165,6 +166,28 @@ fun PeekABooOverlay(
                         fontWeight = FontWeight.Black,
                         fontSize = 20.sp
                     )
+                }
+            }
+        }
+
+        // Top Exit Game Button
+        if (onExit != null) {
+            Surface(
+                onClick = onExit,
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "🙈 Peek-a-boo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(text = "✕ Exit", color = Color(0xFFF87171), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }

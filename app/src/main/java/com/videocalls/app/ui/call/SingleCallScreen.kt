@@ -767,8 +767,18 @@ fun SingleCallScreen(
                     manager = bubbleManager,
                     particleManager = particleManager,
                     onTap = {
-                        areControlsVisible = true
-                        resetControlsTimer()
+                        // Gameplay tap: do NOT show call controls while popping bubbles
+                    },
+                    onExit = {
+                        currentGame = InteractiveGameType.NONE
+                        sendGameSync(InteractiveGameType.NONE)
+                        if (currentFilter == InteractiveEffectType.NONE &&
+                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
+                            currentBackground == InteractiveBackgroundType.NONE &&
+                            remoteAppliedBackground == InteractiveBackgroundType.NONE
+                        ) {
+                            isKidsFeaturesActive = false
+                        }
                     }
                 )
             }
@@ -777,14 +787,24 @@ fun SingleCallScreen(
                     isOpen = isPeekABooOpen,
                     onToggle = { nextState ->
                         isPeekABooOpen = nextState
-                        resetControlsTimer()
                         val msg = JSONObject().apply {
                             put("type", "PEEK_A_BOO")
                             put("isOpen", nextState)
                         }.toString()
                         rtcClient.sendDataMessage(null, msg)
                     },
-                    particleManager = particleManager
+                    particleManager = particleManager,
+                    onExit = {
+                        currentGame = InteractiveGameType.NONE
+                        sendGameSync(InteractiveGameType.NONE)
+                        if (currentFilter == InteractiveEffectType.NONE &&
+                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
+                            currentBackground == InteractiveBackgroundType.NONE &&
+                            remoteAppliedBackground == InteractiveBackgroundType.NONE
+                        ) {
+                            isKidsFeaturesActive = false
+                        }
+                    }
                 )
             }
             InteractiveGameType.NONE -> {}
@@ -808,9 +828,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: ONLY present when kids features are active AND controls are hidden
+        // Persistent Translucent Menu Pill in Corner: present when kids features are active AND controls are hidden (or during game)
         AnimatedVisibility(
-            visible = !areControlsVisible && isKidsFeaturesActive,
+            visible = (!areControlsVisible || currentGame != InteractiveGameType.NONE) && isKidsFeaturesActive,
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -820,8 +840,12 @@ fun SingleCallScreen(
         ) {
             Surface(
                 onClick = {
-                    areControlsVisible = true
-                    resetControlsTimer()
+                    if (currentGame != InteractiveGameType.NONE) {
+                        showKidsSheet = true
+                    } else {
+                        areControlsVisible = true
+                        resetControlsTimer()
+                    }
                 },
                 shape = RoundedCornerShape(20.dp),
                 color = Color(0xFF1E293B).copy(alpha = 0.75f),
@@ -834,13 +858,13 @@ fun SingleCallScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Menu,
+                        imageVector = if (currentGame != InteractiveGameType.NONE) Icons.Rounded.Face else Icons.Rounded.Menu,
                         contentDescription = "Show Controls",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Controls",
+                        text = if (currentGame != InteractiveGameType.NONE) "Kids Menu" else "Controls",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
@@ -849,9 +873,9 @@ fun SingleCallScreen(
             }
         }
 
-        // Bottom Controls Bar
+        // Bottom Controls Bar (Hidden during games so children never accidentally hang up)
         AnimatedVisibility(
-            visible = areControlsVisible,
+            visible = areControlsVisible && currentGame == InteractiveGameType.NONE,
             enter = fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { it },
             exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { it },
             modifier = Modifier
