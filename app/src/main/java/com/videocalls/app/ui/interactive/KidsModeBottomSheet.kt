@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,8 +21,10 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun KidsModeBottomSheet(
     onDismissRequest: () -> Unit,
-    currentFilter: InteractiveFilterType,
-    onFilterSelected: (InteractiveFilterType) -> Unit,
+    currentBackground: InteractiveBackgroundType,
+    onBackgroundSelected: (InteractiveBackgroundType) -> Unit,
+    currentEffect: InteractiveEffectType,
+    onEffectSelected: (InteractiveEffectType) -> Unit,
     currentGame: InteractiveGameType,
     onGameSelected: (InteractiveGameType) -> Unit,
     sparklesEnabled: Boolean,
@@ -47,21 +50,28 @@ fun KidsModeBottomSheet(
             ) {
                 Text(text = "🧸", fontSize = 26.sp)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Kids Fun Zone",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Column {
+                    Text(
+                        text = "Kids Fun Zone",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "👆 Tap video to cycle effects • 👉 Swipe to change scenery",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 1. Interactive Face Filters (Global by default)
+            // 1. Cartoon Backgrounds
             Text(
-                text = "Face Filters:",
+                text = "Cartoon Backgrounds:",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
+                color = Color.White.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -70,24 +80,50 @@ fun KidsModeBottomSheet(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                InteractiveFilterType.values().forEach { filter ->
-                    val isSelected = currentFilter == filter
+                InteractiveBackgroundType.values().forEach { bg ->
+                    val isSelected = currentBackground == bg
                     FilterButton(
-                        name = filter.displayName,
-                        icon = filter.icon,
+                        name = bg.displayName,
+                        icon = bg.icon,
                         isSelected = isSelected,
-                        onClick = { onFilterSelected(filter) }
+                        onClick = { onBackgroundSelected(bg) }
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Toddler Games
+            // 2. Interactive Effects
+            Text(
+                text = "Fun Effects:",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                InteractiveEffectType.values().forEach { effect ->
+                    val isSelected = currentEffect == effect
+                    FilterButton(
+                        name = effect.displayName,
+                        icon = effect.icon,
+                        isSelected = isSelected,
+                        onClick = { onEffectSelected(effect) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 3. Toddler Games
             Text(
                 text = "Play Games Together:",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.7f)
+                color = Color.White.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -109,7 +145,7 @@ fun KidsModeBottomSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 3. Sparkles & Toddler Lock Options
+            // 4. Sparkles & Toddler Lock Options
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -142,7 +178,7 @@ fun KidsModeBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -160,7 +196,7 @@ fun KidsModeBottomSheet(
                             color = Color.White
                         )
                         Text(
-                            text = "Prevent accidental call hang-up",
+                            text = "Prevents accidental back or hang up",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.6f)
                         )
@@ -171,12 +207,12 @@ fun KidsModeBottomSheet(
                     onCheckedChange = onToddlerLockToggled,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF10B981)
+                        checkedTrackColor = Color(0xFFF59E0B)
                     )
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -198,8 +234,8 @@ private fun FilterButton(
             modifier = Modifier
                 .size(60.dp)
                 .background(
-                    if (isSelected) Color(0xFF0284C7).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
-                    CircleShape
+                    color = if (isSelected) Color(0xFF0284C7) else Color.White.copy(alpha = 0.1f),
+                    shape = CircleShape
                 )
                 .border(
                     width = if (isSelected) 3.dp else 1.dp,
@@ -208,14 +244,14 @@ private fun FilterButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = icon, fontSize = 26.sp)
+            Text(text = icon, fontSize = 28.sp)
         }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = name,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.8f)
+            color = if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.9f)
         )
     }
 }

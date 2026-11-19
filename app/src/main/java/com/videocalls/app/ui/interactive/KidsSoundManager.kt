@@ -46,6 +46,13 @@ object KidsSoundManager {
         }
     }
 
+    /** Plays a cartoon whoosh sound for background swipe */
+    fun playWhoosh() {
+        scope.launch {
+            playToneSweep(startFreq = 300f, endFreq = 700f, durationMs = 80, volume = 0.6f)
+        }
+    }
+
     private fun playToneSweep(startFreq: Float, endFreq: Float, durationMs: Int, volume: Float) {
         try {
             val sampleRate = 44100

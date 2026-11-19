@@ -10,16 +10,20 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -136,16 +140,19 @@ fun SingleCallScreen(
     var isEnded by remember { mutableStateOf(false) }
 
     // Interactive & Toddler Features (Inactive by default)
-    var currentFilter by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    var currentFilter by remember { mutableStateOf(InteractiveEffectType.NONE) }
+    var currentBackground by remember { mutableStateOf(InteractiveBackgroundType.NONE) }
     var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
     var sparklesEnabled by remember { mutableStateOf(false) }
     var toddlerLockEnabled by remember { mutableStateOf(false) }
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
 
-    // Mirrored Filter Applied by Remote Caller on Me
-    var remoteAppliedFilterOnMe by remember { mutableStateOf(InteractiveFilterType.NONE) }
+    // Mirrored Filter & Background Applied by Remote Caller on Me
+    var remoteAppliedFilterOnMe by remember { mutableStateOf(InteractiveEffectType.NONE) }
+    var remoteAppliedBackground by remember { mutableStateOf(InteractiveBackgroundType.NONE) }
     var contextNotificationMessage by remember { mutableStateOf<String?>(null) }
+    var badgeToastMessage by remember { mutableStateOf<String?>(null) }
 
     var screenWidth by remember { mutableFloatStateOf(1080f) }
     var screenHeight by remember { mutableFloatStateOf(1920f) }
@@ -157,6 +164,13 @@ fun SingleCallScreen(
         }
     }
 
+    LaunchedEffect(badgeToastMessage) {
+        if (badgeToastMessage != null) {
+            delay(1600L)
+            badgeToastMessage = null
+        }
+    }
+
     val particleManager = remember { ParticleManager() }
     val faceTracker = remember { FaceTracker() }
     val detectedFace by faceTracker.detectedFace.collectAsState()
@@ -164,10 +178,18 @@ fun SingleCallScreen(
     val pipFaceTracker = remember { FaceTracker() }
     val pipDetectedFace by pipFaceTracker.detectedFace.collectAsState()
 
-    fun sendFeedFilter(filter: InteractiveFilterType) {
+    fun sendFeedFilter(filter: InteractiveEffectType) {
         val msg = JSONObject().apply {
             put("type", "SET_FEED_FILTER")
             put("filter", filter.name)
+        }.toString()
+        rtcClient.sendDataMessage(null, msg)
+    }
+
+    fun sendBackgroundSync(bg: InteractiveBackgroundType) {
+        val msg = JSONObject().apply {
+            put("type", "SET_BACKGROUND")
+            put("background", bg.name)
         }.toString()
         rtcClient.sendDataMessage(null, msg)
     }
@@ -180,6 +202,32 @@ fun SingleCallScreen(
         rtcClient.sendDataMessage(null, msg)
     }
 
+    fun cycleNextBackground(forward: Boolean = true) {
+        val values = InteractiveBackgroundType.values()
+        val curIndex = values.indexOf(currentBackground).coerceAtLeast(0)
+        val nextIndex = if (forward) {
+            (curIndex + 1) % values.size
+        } else {
+            if (curIndex - 1 < 0) values.size - 1 else curIndex - 1
+        }
+        val nextBg = values[nextIndex]
+        currentBackground = nextBg
+        sendBackgroundSync(nextBg)
+        KidsSoundManager.playWhoosh()
+        badgeToastMessage = "${nextBg.icon} ${nextBg.displayName}"
+    }
+
+    fun cycleNextEffect() {
+        val values = InteractiveEffectType.values()
+        val curIndex = values.indexOf(currentFilter).coerceAtLeast(0)
+        val nextIndex = (curIndex + 1) % values.size
+        val nextEffect = values[nextIndex]
+        currentFilter = nextEffect
+        sendFeedFilter(nextEffect)
+        KidsSoundManager.playSparkle()
+        badgeToastMessage = "${nextEffect.icon} ${nextEffect.displayName}"
+    }
+
     val bubbleManager = remember {
         BubbleGameManager { id, _, _ ->
             val msg = JSONObject().apply {
@@ -188,33 +236,6 @@ fun SingleCallScreen(
             }.toString()
             rtcClient.sendDataMessage(null, msg)
         }
-    }
-
-    val doodleManager = remember {
-        DoodleManager(
-            onStrokeFinished = { stroke ->
-                val pointsArray = JSONArray()
-                stroke.points.forEach { p ->
-                    pointsArray.put(JSONObject().apply {
-                        put("x", p.x.toDouble())
-                        put("y", p.y.toDouble())
-                    })
-                }
-                val msg = JSONObject().apply {
-                    put("type", "DOODLE_STROKE")
-                    put("color", stroke.color)
-                    put("strokeWidth", stroke.strokeWidth.toDouble())
-                    put("points", pointsArray)
-                }.toString()
-                rtcClient.sendDataMessage(null, msg)
-            },
-            onCleared = {
-                val msg = JSONObject().apply {
-                    put("type", "CLEAR_DOODLE")
-                }.toString()
-                rtcClient.sendDataMessage(null, msg)
-            }
-        )
     }
 
     // Call controls auto-hide & visibility state
@@ -329,18 +350,18 @@ fun SingleCallScreen(
                     "PEEK_A_BOO" -> {
                         isPeekABooOpen = json.getBoolean("isOpen")
                     }
-                    "DOODLE_STROKE" -> {
-                        val color = json.getLong("color")
-                        val strokeWidth = json.getDouble("strokeWidth").toFloat()
-                        val pointsArray = json.getJSONArray("points")
-                        val points = (0 until pointsArray.length()).map { i ->
-                            val pObj = pointsArray.getJSONObject(i)
-                            DoodlePoint(pObj.getDouble("x").toFloat(), pObj.getDouble("y").toFloat())
+                    "SET_BACKGROUND" -> {
+                        val bgName = json.optString("background")
+                        val bg = try {
+                            InteractiveBackgroundType.valueOf(bgName)
+                        } catch (_: Exception) {
+                            InteractiveBackgroundType.NONE
                         }
-                        doodleManager.addRemoteStroke(DoodleStroke(color, strokeWidth, points))
-                    }
-                    "CLEAR_DOODLE" -> {
-                        doodleManager.strokes.clear()
+                        remoteAppliedBackground = bg
+                        if (bg != InteractiveBackgroundType.NONE) {
+                            contextNotificationMessage = "${bg.icon} $targetName set ${bg.displayName} scenery!"
+                            KidsSoundManager.playWhoosh()
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -406,8 +427,13 @@ fun SingleCallScreen(
     val activeMainFilter = currentFilter
     val activePipFilter = remoteAppliedFilterOnMe
 
-    val isKidsActive = currentFilter != InteractiveFilterType.NONE ||
-            remoteAppliedFilterOnMe != InteractiveFilterType.NONE ||
+    val activeMainBackground = if (currentBackground != InteractiveBackgroundType.NONE) currentBackground else remoteAppliedBackground
+    val activePipBackground = remoteAppliedBackground
+
+    val isKidsActive = currentFilter != InteractiveEffectType.NONE ||
+            remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
+            currentBackground != InteractiveBackgroundType.NONE ||
+            remoteAppliedBackground != InteractiveBackgroundType.NONE ||
             currentGame != InteractiveGameType.NONE ||
             sparklesEnabled ||
             toddlerLockEnabled
@@ -559,6 +585,9 @@ fun SingleCallScreen(
                         isMirror = true,
                         isOverlay = true
                     )
+                    CartoonBackgroundOverlay(
+                        backgroundType = activePipBackground
+                    )
                     FaceFiltersOverlay(
                         filterType = activePipFilter,
                         face = pipDetectedFace
@@ -567,11 +596,85 @@ fun SingleCallScreen(
             }
         }
 
-        // Interactive Face Filters Overlay on Main Video
+        // Cartoon Background Scenery Overlay on Main Video
+        CartoonBackgroundOverlay(
+            backgroundType = activeMainBackground
+        )
+
+        // Interactive Face Filters / Effects Overlay on Main Video
         FaceFiltersOverlay(
             filterType = activeMainFilter,
             face = detectedFace
         )
+
+        // Gesture Detection Overlay on Video when not playing games (Swipe = background, Tap = effect)
+        if (isVideo && currentGame == InteractiveGameType.NONE) {
+            var dragAccumX by remember { mutableFloatStateOf(0f) }
+            var dragAccumY by remember { mutableFloatStateOf(0f) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                cycleNextEffect()
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = {
+                                dragAccumX = 0f
+                                dragAccumY = 0f
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragAccumX += dragAmount.x
+                                dragAccumY += dragAmount.y
+                            },
+                            onDragEnd = {
+                                val dx = dragAccumX
+                                val dy = dragAccumY
+                                if (kotlin.math.abs(dx) > 60f || kotlin.math.abs(dy) > 60f) {
+                                    val forward = if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                                        dx < 0f // Swipe left -> forward
+                                    } else {
+                                        dy < 0f // Swipe up -> forward
+                                    }
+                                    cycleNextBackground(forward)
+                                }
+                            }
+                        )
+                    }
+            )
+        }
+
+        // Gesture Toast Badge ("🚀 Space Galaxy", "🕶️ Cool Shades")
+        AnimatedVisibility(
+            visible = badgeToastMessage != null,
+            enter = fadeIn(tween(200)) + scaleIn(tween(200)),
+            exit = fadeOut(tween(250)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 16.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                shadowElevation = 8.dp
+            ) {
+                Text(
+                    text = badgeToastMessage ?: "",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp)
+                )
+            }
+        }
 
         // Interactive Games Overlays
         when (currentGame) {
@@ -599,9 +702,6 @@ fun SingleCallScreen(
                     },
                     particleManager = particleManager
                 )
-            }
-            InteractiveGameType.DOODLE -> {
-                DoodleOverlay(manager = doodleManager)
             }
             InteractiveGameType.NONE -> {}
         }
@@ -737,21 +837,23 @@ fun SingleCallScreen(
                         }
                     }
 
-                    // Speakerphone Toggle
-                    FilledIconButton(
-                        onClick = {
-                            resetControlsTimer()
-                            rtcClient.toggleSpeakerphone()
-                        },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (isSpeakerOn) Color(0xFF0284C7).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
-                            contentDescription = "Speaker"
-                        )
+                    // Speakerphone Toggle (Audio calls only, since video calls default to speakerphone)
+                    if (!isVideo) {
+                        FilledIconButton(
+                            onClick = {
+                                resetControlsTimer()
+                                rtcClient.toggleSpeakerphone()
+                            },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (isSpeakerOn) Color(0xFF0284C7).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                                contentColor = if (isSpeakerOn) Color(0xFF38BDF8) else Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (isSpeakerOn) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeDown,
+                                contentDescription = "Speaker"
+                            )
+                        }
                     }
 
                     // Kids Fun Zone Button (🧸 / 🎈)
@@ -761,9 +863,9 @@ fun SingleCallScreen(
                             showKidsSheet = true
                         },
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                            containerColor = if (isKidsActive)
                                 Color(0xFFEC4899).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (currentFilter != InteractiveFilterType.NONE || currentGame != InteractiveGameType.NONE)
+                            contentColor = if (isKidsActive)
                                 Color(0xFFF472B6) else Color.White
                         )
                     ) {
@@ -799,8 +901,13 @@ fun SingleCallScreen(
         if (showKidsSheet) {
             KidsModeBottomSheet(
                 onDismissRequest = { showKidsSheet = false },
-                currentFilter = currentFilter,
-                onFilterSelected = {
+                currentBackground = currentBackground,
+                onBackgroundSelected = {
+                    currentBackground = it
+                    sendBackgroundSync(it)
+                },
+                currentEffect = currentFilter,
+                onEffectSelected = {
                     currentFilter = it
                     sendFeedFilter(it)
                 },

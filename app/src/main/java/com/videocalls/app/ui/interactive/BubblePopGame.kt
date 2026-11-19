@@ -2,17 +2,17 @@ package com.videocalls.app.ui.interactive
 
 import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -27,7 +27,7 @@ data class Bubble(
     val id: Int,
     var x: Float, // 0f..1f (normalized)
     var y: Float, // 0f..1.2f (normalized, >1f is below screen)
-    val radius: Float, // dp-like size
+    val radius: Float, // size in px
     val speed: Float,
     val swayAmplitude: Float,
     val swayFrequency: Float,
@@ -43,47 +43,53 @@ class BubbleGameManager(
     private var lastSpawnTime = 0L
 
     private val bubbleColors = listOf(
-        Color(0x8838BDF8), // Cyan
-        Color(0x88EC4899), // Pink
-        Color(0x88FBBF24), // Yellow
-        Color(0x88A855F7), // Purple
-        Color(0x8834D399)  // Green
+        Color(0x9938BDF8), // Cyan
+        Color(0x99EC4899), // Pink
+        Color(0x99FBBF24), // Yellow
+        Color(0x99A855F7), // Purple
+        Color(0x9934D399), // Green
+        Color(0x99FB923C)  // Orange
     )
 
-    fun spawnBubble(now: Long) {
-        if (bubbles.size >= 12) return
-        if (now - lastSpawnTime < 800L) return
+    fun spawnBubble(now: Long, viewportWidth: Float) {
+        if (bubbles.size >= 16) return
+        if (now - lastSpawnTime < 550L) return
         lastSpawnTime = now
+
+        // Big toddler-friendly size: between 50dp and 85dp equivalent in px
+        val baseSize = if (viewportWidth > 0) viewportWidth * 0.16f else 120f
+        val rad = baseSize * (Random.nextFloat() * 0.5f + 0.8f)
 
         val b = Bubble(
             id = nextId++,
-            x = Random.nextFloat() * 0.8f + 0.1f,
-            y = 1.1f, // just below screen
-            radius = Random.nextFloat() * 32f + 28f,
-            speed = Random.nextFloat() * 0.003f + 0.002f,
-            swayAmplitude = Random.nextFloat() * 0.02f + 0.01f,
-            swayFrequency = Random.nextFloat() * 0.003f + 0.002f,
+            x = Random.nextFloat() * 0.76f + 0.12f,
+            y = 1.12f, // spawn below bottom edge
+            radius = rad,
+            speed = Random.nextFloat() * 0.0007f + 0.00035f, // very gentle, slow float
+            swayAmplitude = Random.nextFloat() * 0.025f + 0.01f,
+            swayFrequency = Random.nextFloat() * 0.002f + 0.001f,
             color = bubbleColors[Random.nextInt(bubbleColors.size)]
         )
         bubbles.add(b)
     }
 
-    fun update(timeMillis: Long) {
-        spawnBubble(timeMillis)
+    fun update(timeMillis: Long, viewportWidth: Float) {
+        spawnBubble(timeMillis, viewportWidth)
         val iterator = bubbles.iterator()
         while (iterator.hasNext()) {
             val b = iterator.next()
             b.y -= b.speed
             b.x += sin(timeMillis * b.swayFrequency) * b.swayAmplitude
-            b.x = b.x.coerceIn(0.05f, 0.95f)
+            b.x = b.x.coerceIn(0.06f, 0.94f)
 
-            if (b.y < -0.15f) {
+            if (b.y < -0.2f) {
                 iterator.remove() // Floated off top
             }
         }
     }
 
     fun handleTap(tapX: Float, tapY: Float, width: Float, height: Float): Boolean {
+        // Very generous hit test: bubble radius * 1.8 + 60px so toddlers easily hit it
         for (i in bubbles.indices.reversed()) {
             val b = bubbles[i]
             val bx = b.x * width
@@ -91,7 +97,9 @@ class BubbleGameManager(
             val dx = tapX - bx
             val dy = tapY - by
             val dist = kotlin.math.sqrt(dx * dx + dy * dy)
-            if (dist <= b.radius * 1.3f) {
+            val hitRadius = b.radius * 1.8f + 60f
+
+            if (dist <= hitRadius) {
                 bubbles.removeAt(i)
                 popCount++
                 KidsSoundManager.playPop()
@@ -120,10 +128,12 @@ fun BubblePopOverlay(
     particleManager: ParticleManager,
     onTap: (() -> Unit)? = null
 ) {
-    LaunchedEffect(Unit) {
+    var screenWidth by remember { mutableFloatStateOf(1080f) }
+
+    LaunchedEffect(screenWidth) {
         while (isActive) {
             withInfiniteAnimationFrameMillis { time ->
-                manager.update(time)
+                manager.update(time, screenWidth)
             }
         }
     }
@@ -141,13 +151,13 @@ fun BubblePopOverlay(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "🫧", fontSize = 20.sp)
+                Text(text = "🫧", fontSize = 22.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Popped: ${manager.popCount}",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 17.sp
                 )
             }
         }
@@ -160,36 +170,61 @@ fun BubblePopOverlay(
                         onTap?.invoke()
                         val popped = manager.handleTap(offset.x, offset.y, size.width.toFloat(), size.height.toFloat())
                         if (popped) {
-                            particleManager.burst(offset.x, offset.y, 22)
+                            particleManager.burst(offset.x, offset.y, 24)
                         }
                     }
                 }
         ) {
             val w = size.width
             val h = size.height
+            if (screenWidth != w) {
+                screenWidth = w
+            }
 
             for (b in manager.bubbles) {
                 val cx = b.x * w
                 val cy = b.y * h
+                val rad = b.radius
 
-                // Bubble body
+                // 1. Shimmering translucent bubble body
                 drawCircle(
-                    color = b.color,
-                    radius = b.radius,
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.25f),
+                            b.color,
+                            b.color.copy(alpha = 0.65f)
+                        ),
+                        center = Offset(cx - rad * 0.25f, cy - rad * 0.25f),
+                        radius = rad
+                    ),
+                    radius = rad,
                     center = Offset(cx, cy)
                 )
-                // Outer highlight border
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.7f),
-                    radius = b.radius,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = 3f)
-                )
-                // Glint (top left shine)
+
+                // 2. Outer glowing crisp rim
                 drawCircle(
                     color = Color.White.copy(alpha = 0.85f),
-                    radius = b.radius * 0.25f,
-                    center = Offset(cx - b.radius * 0.35f, cy - b.radius * 0.35f)
+                    radius = rad,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 4f)
+                )
+
+                // 3. Crescent light reflection (top-left shiny arc)
+                drawArc(
+                    color = Color.White.copy(alpha = 0.9f),
+                    startAngle = 180f,
+                    sweepAngle = 100f,
+                    useCenter = false,
+                    topLeft = Offset(cx - rad * 0.82f, cy - rad * 0.82f),
+                    size = Size(rad * 1.64f, rad * 1.64f),
+                    style = Stroke(width = rad * 0.14f)
+                )
+
+                // 4. Secondary small gleam dot (bottom-right)
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.75f),
+                    radius = rad * 0.16f,
+                    center = Offset(cx + rad * 0.45f, cy + rad * 0.45f)
                 )
             }
         }

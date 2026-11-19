@@ -3,20 +3,35 @@ package com.videocalls.app.ui.interactive
 import android.graphics.PointF
 import android.graphics.RectF
 
-enum class InteractiveFilterType(val displayName: String, val icon: String) {
+enum class InteractiveEffectType(val displayName: String, val icon: String) {
     NONE("None", "❌"),
-    DOGGY("Puppy", "🐶"),
-    KITTY("Kitty", "🐱"),
-    SUPERHERO("Hero", "🦸"),
-    FUNNY_GLASSES("Silly", "🥸"),
-    MAGIC_CROWN("Star King", "👑")
+    SHADES("Cool Shades", "🕶️"),
+    PARTY_HAT("Party Hat", "🥳"),
+    RAIN("Rain Drops", "🌧️"),
+    SNOW("Snow Blizzard", "❄️"),
+    TEARS("Drama Tears", "😭"),
+    TWINKLES("Magic Stars", "✨"),
+    KALEIDOSCOPE("Kaleidoscope", "🌀"),
+    DOGGY("Puppy Dog", "🐶"),
+    KITTY("Kitty Cat", "🐱")
+}
+
+typealias InteractiveFilterType = InteractiveEffectType
+
+enum class InteractiveBackgroundType(val displayName: String, val icon: String) {
+    NONE("None", "❌"),
+    SPACE("Space Galaxy", "🚀"),
+    UNDERWATER("Under the Sea", "🐠"),
+    JUNGLE("Wild Safari", "🌴"),
+    CANDY_LAND("Candy Kingdom", "🍭"),
+    RAINBOW("Rainbow Sky", "🌈"),
+    DINO("Dino Land", "🦖")
 }
 
 enum class InteractiveGameType(val displayName: String, val icon: String) {
     NONE("None", "❌"),
     BUBBLE_POP("Pop Bubbles", "🫧"),
-    PEEK_A_BOO("Peek-a-boo", "🙈"),
-    DOODLE("Magic Draw", "🎨")
+    PEEK_A_BOO("Peek-a-boo", "🙈")
 }
 
 data class NormalizedFace(
@@ -32,11 +47,4 @@ data class NormalizedFace(
     val headEulerZ: Float = 0f, // Tilt angle in degrees
     val headEulerY: Float = 0f, // Rotation / turn angle in degrees
     val isMouthOpen: Boolean = false
-)
-
-data class DoodlePoint(val x: Float, val y: Float)
-data class DoodleStroke(
-    val color: Long,
-    val strokeWidth: Float,
-    val points: List<DoodlePoint>
 )
