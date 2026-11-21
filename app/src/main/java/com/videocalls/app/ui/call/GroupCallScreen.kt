@@ -153,6 +153,13 @@ fun GroupCallScreen(
     var toddlerLockEnabled by remember { mutableStateOf(false) }
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
+    var hasUserManuallySelectedEffect by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentGame) {
+        if (currentGame != InteractiveGameType.NONE) {
+            toddlerLockEnabled = true
+        }
+    }
 
     // Internal tracker for when Kids features are active
     // Activates when at least one filter/effect or background is set, deactivates ONLY when both are set to NONE via menu
@@ -222,31 +229,45 @@ fun GroupCallScreen(
     }
 
     fun cycleNextBackground(forward: Boolean = true) {
-        val cyclingBackgrounds = InteractiveBackgroundType.values().filter { it != InteractiveBackgroundType.NONE }
-        val curIndex = cyclingBackgrounds.indexOf(currentBackground)
+        if (!hasUserManuallySelectedEffect) return
+        val allBackgrounds = InteractiveBackgroundType.values()
+        val curIndex = allBackgrounds.indexOf(currentBackground)
         val nextIndex = if (forward) {
-            if (curIndex == -1) 0 else (curIndex + 1) % cyclingBackgrounds.size
+            if (curIndex == -1) 0 else (curIndex + 1) % allBackgrounds.size
         } else {
-            if (curIndex <= 0) cyclingBackgrounds.size - 1 else curIndex - 1
+            if (curIndex <= 0) allBackgrounds.size - 1 else curIndex - 1
         }
-        val nextBg = cyclingBackgrounds[nextIndex]
+        val nextBg = allBackgrounds[nextIndex]
         currentBackground = nextBg
-        sendBackgroundSync(nextBg)
-        isKidsFeaturesActive = true
-        KidsSoundManager.playWhoosh()
-        badgeToastMessage = "${nextBg.icon} ${nextBg.displayName}"
+        if (nextBg != InteractiveBackgroundType.NONE) {
+            isKidsFeaturesActive = true
+            KidsSoundManager.playWhoosh()
+            badgeToastMessage = "${nextBg.icon} ${nextBg.displayName}"
+        } else {
+            badgeToastMessage = "🚫 No Scenery"
+            if (currentFilter == InteractiveEffectType.NONE && currentGame == InteractiveGameType.NONE) {
+                isKidsFeaturesActive = false
+            }
+        }
     }
 
     fun cycleNextEffect() {
-        val cyclingEffects = InteractiveEffectType.values().filter { it != InteractiveEffectType.NONE }
-        val curIndex = cyclingEffects.indexOf(currentFilter)
-        val nextIndex = if (curIndex == -1) 0 else (curIndex + 1) % cyclingEffects.size
-        val nextEffect = cyclingEffects[nextIndex]
+        if (!hasUserManuallySelectedEffect) return
+        val allEffects = InteractiveEffectType.values()
+        val curIndex = allEffects.indexOf(currentFilter)
+        val nextIndex = if (curIndex == -1) 0 else (curIndex + 1) % allEffects.size
+        val nextEffect = allEffects[nextIndex]
         currentFilter = nextEffect
-        sendFeedFilter(nextEffect)
-        isKidsFeaturesActive = true
-        KidsSoundManager.playSparkle()
-        badgeToastMessage = "${nextEffect.icon} ${nextEffect.displayName}"
+        if (nextEffect != InteractiveEffectType.NONE) {
+            isKidsFeaturesActive = true
+            KidsSoundManager.playSparkle()
+            badgeToastMessage = "${nextEffect.icon} ${nextEffect.displayName}"
+        } else {
+            badgeToastMessage = "🚫 No Filter"
+            if (currentBackground == InteractiveBackgroundType.NONE && currentGame == InteractiveGameType.NONE) {
+                isKidsFeaturesActive = false
+            }
+        }
     }
 
     val bubbleManager = remember {
@@ -330,27 +351,9 @@ fun GroupCallScreen(
             try {
                 val json = JSONObject(message)
                 when (json.optString("type")) {
-                    "SET_FEED_FILTER", "FILTER_SYNC" -> {
-                        val filterName = json.optString("filter")
-                        val filter = try {
-                            InteractiveFilterType.valueOf(filterName)
-                        } catch (_: Exception) {
-                            InteractiveFilterType.NONE
-                        }
-                        remoteAppliedFilterOnMe = filter
-                        if (filter != InteractiveFilterType.NONE) {
-                            isKidsFeaturesActive = true
-                            contextNotificationMessage = "${filter.icon} ${filter.displayName} filter applied on you!"
-                            KidsSoundManager.playSparkle()
-                        } else {
-                            if (currentFilter == InteractiveEffectType.NONE &&
-                                currentBackground == InteractiveBackgroundType.NONE &&
-                                remoteAppliedBackground == InteractiveBackgroundType.NONE &&
-                                currentGame == InteractiveGameType.NONE
-                            ) {
-                                isKidsFeaturesActive = false
-                            }
-                        }
+                    "SET_FEED_FILTER", "FILTER_SYNC", "SET_BACKGROUND" -> {
+                        // Filters and backgrounds applied to incoming video are purely local to each viewer
+                        // Do NOT force kids features or change background on remote devices
                     }
                     "GAME_SYNC" -> {
                         val gameName = json.optString("game")
@@ -362,10 +365,9 @@ fun GroupCallScreen(
                         currentGame = game
                         if (game != InteractiveGameType.NONE) {
                             isKidsFeaturesActive = true
+                            toddlerLockEnabled = true
                         } else if (currentFilter == InteractiveEffectType.NONE &&
-                            remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
-                            currentBackground == InteractiveBackgroundType.NONE &&
-                            remoteAppliedBackground == InteractiveBackgroundType.NONE
+                            currentBackground == InteractiveBackgroundType.NONE
                         ) {
                             isKidsFeaturesActive = false
                         }
@@ -382,28 +384,6 @@ fun GroupCallScreen(
                     }
                     "PEEK_A_BOO" -> {
                         isPeekABooOpen = json.getBoolean("isOpen")
-                    }
-                    "SET_BACKGROUND" -> {
-                        val bgName = json.optString("background")
-                        val bg = try {
-                            InteractiveBackgroundType.valueOf(bgName)
-                        } catch (_: Exception) {
-                            InteractiveBackgroundType.NONE
-                        }
-                        remoteAppliedBackground = bg
-                        if (bg != InteractiveBackgroundType.NONE) {
-                            isKidsFeaturesActive = true
-                            contextNotificationMessage = "${bg.icon} ${bg.displayName} scenery!"
-                            KidsSoundManager.playWhoosh()
-                        } else {
-                            if (currentBackground == InteractiveBackgroundType.NONE &&
-                                currentFilter == InteractiveEffectType.NONE &&
-                                remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
-                                currentGame == InteractiveGameType.NONE
-                            ) {
-                                isKidsFeaturesActive = false
-                            }
-                        }
                     }
                 }
             } catch (e: Exception) {
@@ -468,16 +448,14 @@ fun GroupCallScreen(
     }
 
     val activeMainFilter = currentFilter
-    val activePipFilter = remoteAppliedFilterOnMe
+    val activePipFilter = InteractiveEffectType.NONE
 
-    val activeMainBackground = if (currentBackground != InteractiveBackgroundType.NONE) currentBackground else remoteAppliedBackground
-    val activePipBackground = remoteAppliedBackground
+    val activeMainBackground = currentBackground
+    val activePipBackground = InteractiveBackgroundType.NONE
 
     val isKidsActive = isKidsFeaturesActive ||
             currentFilter != InteractiveEffectType.NONE ||
-            remoteAppliedFilterOnMe != InteractiveEffectType.NONE ||
             currentBackground != InteractiveBackgroundType.NONE ||
-            remoteAppliedBackground != InteractiveBackgroundType.NONE ||
             currentGame != InteractiveGameType.NONE ||
             sparklesEnabled ||
             toddlerLockEnabled
@@ -908,8 +886,8 @@ fun GroupCallScreen(
             }
         }
 
-        // Gesture Detection Overlay on Video ONLY when kids features are active
-        if (isVideo && currentGame == InteractiveGameType.NONE && isKidsFeaturesActive) {
+        // Gesture Detection Overlay on Video ONLY when user manually selected an effect/filter from menu
+        if (isVideo && currentGame == InteractiveGameType.NONE && isKidsFeaturesActive && hasUserManuallySelectedEffect) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1206,11 +1184,10 @@ fun GroupCallScreen(
                 currentBackground = currentBackground,
                 onBackgroundSelected = {
                     currentBackground = it
-                    sendBackgroundSync(it)
+                    hasUserManuallySelectedEffect = true
                     if (it != InteractiveBackgroundType.NONE) {
                         isKidsFeaturesActive = true
                     } else if (currentFilter == InteractiveEffectType.NONE &&
-                               remoteAppliedFilterOnMe == InteractiveEffectType.NONE &&
                                currentGame == InteractiveGameType.NONE
                     ) {
                         isKidsFeaturesActive = false
@@ -1219,11 +1196,10 @@ fun GroupCallScreen(
                 currentEffect = currentFilter,
                 onEffectSelected = {
                     currentFilter = it
-                    sendFeedFilter(it)
+                    hasUserManuallySelectedEffect = true
                     if (it != InteractiveEffectType.NONE) {
                         isKidsFeaturesActive = true
                     } else if (currentBackground == InteractiveBackgroundType.NONE &&
-                               remoteAppliedBackground == InteractiveBackgroundType.NONE &&
                                currentGame == InteractiveGameType.NONE
                     ) {
                         isKidsFeaturesActive = false
@@ -1235,10 +1211,9 @@ fun GroupCallScreen(
                     sendGameSync(it)
                     if (it != InteractiveGameType.NONE) {
                         isKidsFeaturesActive = true
+                        toddlerLockEnabled = true
                     } else if (currentBackground == InteractiveBackgroundType.NONE &&
-                               remoteAppliedBackground == InteractiveBackgroundType.NONE &&
-                               currentFilter == InteractiveEffectType.NONE &&
-                               remoteAppliedFilterOnMe == InteractiveEffectType.NONE
+                               currentFilter == InteractiveEffectType.NONE
                     ) {
                         isKidsFeaturesActive = false
                     }

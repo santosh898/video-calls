@@ -96,15 +96,18 @@ class CallListenerService : Service() {
                 if (incomingCall != null && incomingCall.status == CallStatus.RINGING) {
                     Log.d(TAG, "Incoming call received in service: ${incomingCall.id}, isGroup=${incomingCall.isGroupCall}")
                     currentRingingCallId = incomingCall.id
-                    CallNotificationHelper.showIncomingCallNotification(
-                        context = applicationContext,
-                        callId = incomingCall.id,
-                        callerName = incomingCall.callerName.ifBlank { if (incomingCall.isGroupCall) "Group Call" else "Caller" },
-                        callerPhone = incomingCall.callerPhone,
-                        callType = incomingCall.callType,
-                        isGroupCall = incomingCall.isGroupCall,
-                        groupId = incomingCall.groupId
-                    )
+                    // Only display heads-up system notification if the app is NOT active in foreground
+                    if (!VideoCallApp.isAppInForeground) {
+                        CallNotificationHelper.showIncomingCallNotification(
+                            context = applicationContext,
+                            callId = incomingCall.id,
+                            callerName = incomingCall.callerName.ifBlank { if (incomingCall.isGroupCall) "Group Call" else "Caller" },
+                            callerPhone = incomingCall.callerPhone,
+                            callType = incomingCall.callType,
+                            isGroupCall = incomingCall.isGroupCall,
+                            groupId = incomingCall.groupId
+                        )
+                    }
                 } else {
                     // Call ended, declined, or cancelled by caller
                     if (currentRingingCallId != null) {

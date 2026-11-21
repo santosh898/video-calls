@@ -1,5 +1,6 @@
 package com.videocalls.app
 
+import android.app.Activity
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +8,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Bundle
 import com.videocalls.app.data.local.LiveSyncManager
 
 class VideoCallApp : Application() {
@@ -14,6 +16,24 @@ class VideoCallApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var resumedActivities = 0
+            override fun onActivityResumed(activity: Activity) {
+                resumedActivities++
+                isAppInForeground = resumedActivities > 0
+            }
+            override fun onActivityPaused(activity: Activity) {
+                resumedActivities = (resumedActivities - 1).coerceAtLeast(0)
+                isAppInForeground = resumedActivities > 0
+            }
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
+
         createNotificationChannels()
         LiveSyncManager.getInstance(this).startLiveSync()
 
@@ -76,6 +96,8 @@ class VideoCallApp : Application() {
         const val CHANNEL_INCOMING_CALLS = "incoming_calls_channel"
         const val CHANNEL_ONGOING_CALLS = "ongoing_calls_channel"
         const val CHANNEL_LISTENER = "background_listener_channel"
+
+        var isAppInForeground: Boolean = false
 
         lateinit var instance: VideoCallApp
             private set

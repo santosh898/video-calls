@@ -112,15 +112,8 @@ class MainActivity : ComponentActivity() {
                                 val callDisplayName = incomingCall.callerName.ifBlank {
                                     if (incomingCall.isGroupCall) "Group Call" else "Caller"
                                 }
-                                CallNotificationHelper.showIncomingCallNotification(
-                                    context = this@MainActivity,
-                                    callId = incomingCall.id,
-                                    callerName = callDisplayName,
-                                    callerPhone = incomingCall.callerPhone,
-                                    callType = incomingCall.callType,
-                                    isGroupCall = incomingCall.isGroupCall,
-                                    groupId = incomingCall.groupId
-                                )
+                                // When app is open, handle call in-app directly and ensure notification is dismissed
+                                CallNotificationHelper.cancelNotification(this@MainActivity, incomingCall.id)
                                 val currentRoute = navController.currentDestination?.route
                                 if (currentRoute == Screen.Home.route || currentRoute == null) {
                                     navController.navigate(

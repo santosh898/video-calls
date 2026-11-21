@@ -158,30 +158,41 @@ class FaceTracker : VideoSink {
         val rawLeftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
         val rawRightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
 
-        // Detect mouth open / tongue trigger using multiple scale-independent facial proportions
+        // Detect mouth open / tongue trigger using calibrated scale-independent facial proportions
         val isMouthOpen = run {
             if (rawNose != null && rawMouthBottom != null) {
                 val noseToMouth = kotlin.math.hypot(rawMouthBottom.x - rawNose.x, rawMouthBottom.y - rawNose.y)
-
-                // 1. Ratio relative to bounding box height (> 0.24 indicates jaw drop / mouth open)
                 val bboxRatio = if (bbox.height() > 0) noseToMouth / bbox.height() else 0f
-                if (bboxRatio > 0.24f) return@run true
 
-                // 2. Ratio relative to mouth width (Mouth Aspect Ratio)
+                // Primary check: Mouth Aspect Ratio (MAR) when mouth corners are detected
                 if (rawMouthLeft != null && rawMouthRight != null) {
                     val mw = kotlin.math.hypot(rawMouthRight.x - rawMouthLeft.x, rawMouthRight.y - rawMouthLeft.y)
                     val mcX = (rawMouthLeft.x + rawMouthRight.x) * 0.5f
                     val mcY = (rawMouthLeft.y + rawMouthRight.y) * 0.5f
                     val drop = kotlin.math.hypot(rawMouthBottom.x - mcX, rawMouthBottom.y - mcY)
-                    if (mw > 0f && (drop / mw) > 0.30f) return@run true
+
+                    // On relaxed/closed lips, drop / mw is 0.18-0.28.
+                    // When jaw drops / mouth opens, drop / mw exceeds 0.44.
+                    if (mw > 0f && (drop / mw) > 0.44f && bboxRatio > 0.27f) {
+                        return@run true
+                    }
                 }
 
-                // 3. Ratio relative to rigid skull eye-to-nose distance
+                // Secondary check: Rigid skull distance (eye-to-nose vs nose-to-mouth)
                 if (rawLeftEye != null && rawRightEye != null) {
                     val eyeCX = (rawLeftEye.x + rawRightEye.x) * 0.5f
                     val eyeCY = (rawLeftEye.y + rawRightEye.y) * 0.5f
                     val eyeToNose = kotlin.math.hypot(rawNose.x - eyeCX, rawNose.y - eyeCY)
-                    if (eyeToNose > 0f && (noseToMouth / eyeToNose) > 1.0f) return@run true
+                    // On relaxed face, noseToMouth / eyeToNose is 0.85-1.15.
+                    // When jaw drops, it exceeds 1.30.
+                    if (eyeToNose > 0f && (noseToMouth / eyeToNose) > 1.30f && bboxRatio > 0.285f) {
+                        return@run true
+                    }
+                }
+
+                // Fallback for extreme jaw drop if other landmarks missing
+                if (bboxRatio > 0.31f) {
+                    return@run true
                 }
             }
             false

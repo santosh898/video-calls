@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -138,7 +139,7 @@ fun BubblePopOverlay(
     var screenWidth by remember { mutableFloatStateOf(1080f) }
     var frameTick by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(screenWidth) {
+    LaunchedEffect(Unit) {
         while (isActive) {
             withInfiniteAnimationFrameMillis { time ->
                 manager.update(time, screenWidth)
@@ -147,7 +148,15 @@ fun BubblePopOverlay(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .onSizeChanged { size ->
+                if (size.width > 0) {
+                    screenWidth = size.width.toFloat()
+                }
+            }
+    ) {
         // Score Pill Top Center
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -187,9 +196,6 @@ fun BubblePopOverlay(
             val _tick = frameTick // Invalidate on every vsync frame
             val w = size.width
             val h = size.height
-            if (screenWidth != w) {
-                screenWidth = w
-            }
 
             for (b in manager.bubbles) {
                 val cx = b.x * w
