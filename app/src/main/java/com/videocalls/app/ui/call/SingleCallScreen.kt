@@ -234,15 +234,15 @@ fun SingleCallScreen(
         }
         val nextBg = allBackgrounds[nextIndex]
         currentBackground = nextBg
+        sendBackgroundSync(nextBg)
         if (nextBg != InteractiveBackgroundType.NONE) {
             isKidsFeaturesActive = true
             KidsSoundManager.playWhoosh()
             badgeToastMessage = "${nextBg.icon} ${nextBg.displayName}"
         } else {
             badgeToastMessage = "🚫 No Scenery"
-            if (currentFilter == InteractiveEffectType.NONE && currentGame == InteractiveGameType.NONE) {
-                isKidsFeaturesActive = false
-            }
+            // "none should be in the loop, should not exit kids mode"
+            // Keep isKidsFeaturesActive = true so gesture cycling stays active
         }
     }
 
@@ -253,15 +253,15 @@ fun SingleCallScreen(
         val nextIndex = if (curIndex == -1) 0 else (curIndex + 1) % allEffects.size
         val nextEffect = allEffects[nextIndex]
         currentFilter = nextEffect
+        sendFeedFilter(nextEffect)
         if (nextEffect != InteractiveEffectType.NONE) {
             isKidsFeaturesActive = true
             KidsSoundManager.playSparkle()
             badgeToastMessage = "${nextEffect.icon} ${nextEffect.displayName}"
         } else {
             badgeToastMessage = "🚫 No Filter"
-            if (currentBackground == InteractiveBackgroundType.NONE && currentGame == InteractiveGameType.NONE) {
-                isKidsFeaturesActive = false
-            }
+            // "none should be in the loop, should not exit kids mode"
+            // Keep isKidsFeaturesActive = true so gesture cycling stays active
         }
     }
 
@@ -309,7 +309,10 @@ fun SingleCallScreen(
         if (toddlerLockEnabled) {
             Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
         } else {
-            endCallInternal()
+            // Accidental edge swipes / back button must NEVER terminate an active call.
+            // Reveal controls if hidden so the user sees the red hang up button if desired.
+            areControlsVisible = true
+            resetControlsTimer()
         }
     }
 
@@ -342,6 +345,14 @@ fun SingleCallScreen(
             isConnected = true
             coroutineScope.launch {
                 signalingRepo.updateCallStatus(callId, CallStatus.CONNECTED)
+                // If caller/callee already had a filter/background set before connection, sync to remote
+                delay(600L)
+                if (currentFilter != InteractiveEffectType.NONE) {
+                    sendFeedFilter(currentFilter)
+                }
+                if (currentBackground != InteractiveBackgroundType.NONE) {
+                    sendBackgroundSync(currentBackground)
+                }
             }
         }
 
@@ -360,9 +371,33 @@ fun SingleCallScreen(
             try {
                 val json = JSONObject(message)
                 when (json.optString("type")) {
-                    "SET_FEED_FILTER", "FILTER_SYNC", "SET_BACKGROUND" -> {
-                        // Filters and backgrounds applied to incoming video are purely local to each viewer
-                        // Do NOT force kids features or change background on remote device
+                    "SET_FEED_FILTER", "FILTER_SYNC" -> {
+                        val filterName = json.optString("filter")
+                        val filter = try {
+                            InteractiveEffectType.valueOf(filterName)
+                        } catch (_: Exception) {
+                            InteractiveEffectType.NONE
+                        }
+                        remoteAppliedFilterOnMe = filter
+                        if (filter != InteractiveEffectType.NONE) {
+                            contextNotificationMessage = "✨ Filter applied on you: ${filter.displayName}"
+                        }
+                        // Do NOT activate Kids Mode on receiver:
+                        // receiver's incoming feed and call controls remain normal
+                    }
+                    "SET_BACKGROUND" -> {
+                        val bgName = json.optString("background")
+                        val bg = try {
+                            InteractiveBackgroundType.valueOf(bgName)
+                        } catch (_: Exception) {
+                            InteractiveBackgroundType.NONE
+                        }
+                        remoteAppliedBackground = bg
+                        if (bg != InteractiveBackgroundType.NONE) {
+                            contextNotificationMessage = "🎨 Scenery applied on you: ${bg.displayName}"
+                        }
+                        // Do NOT activate Kids Mode on receiver:
+                        // receiver's incoming feed and call controls remain normal
                     }
                     "GAME_SYNC" -> {
                         val gameName = json.optString("game")
@@ -462,10 +497,10 @@ fun SingleCallScreen(
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
 
     val activeMainFilter = currentFilter
-    val activePipFilter = InteractiveEffectType.NONE
+    val activePipFilter = remoteAppliedFilterOnMe
 
     val activeMainBackground = currentBackground
-    val activePipBackground = InteractiveBackgroundType.NONE
+    val activePipBackground = remoteAppliedBackground
 
     val isKidsActive = isKidsFeaturesActive ||
             currentFilter != InteractiveEffectType.NONE ||
@@ -970,6 +1005,7 @@ fun SingleCallScreen(
                 onBackgroundSelected = {
                     currentBackground = it
                     hasUserManuallySelectedEffect = true
+                    sendBackgroundSync(it)
                     if (it != InteractiveBackgroundType.NONE) {
                         isKidsFeaturesActive = true
                     } else if (currentFilter == InteractiveEffectType.NONE &&
@@ -982,6 +1018,7 @@ fun SingleCallScreen(
                 onEffectSelected = {
                     currentFilter = it
                     hasUserManuallySelectedEffect = true
+                    sendFeedFilter(it)
                     if (it != InteractiveEffectType.NONE) {
                         isKidsFeaturesActive = true
                     } else if (currentBackground == InteractiveBackgroundType.NONE &&

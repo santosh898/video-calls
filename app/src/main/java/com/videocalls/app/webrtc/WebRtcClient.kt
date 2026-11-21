@@ -108,8 +108,11 @@ class WebRtcClient(
         // Setup local audio
         if (localAudioTrack == null) {
             val audioConstraints = MediaConstraints().apply {
-                // Keep Acoustic Echo Cancellation so speakerphone output does not loop back
+                // WebRTC Software AEC3: Software acoustic echo cancellation subtracts speakerphone output
+                // without clipping high-frequency or unvoiced speech (shouts, laughter, babble)
                 mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("googDAEchoCancellation", "true"))
                 mandatory.add(MediaConstraints.KeyValuePair("echoCancellation", "true"))
 
                 // CRITICAL FOR KIDS: Disable ALL noise suppression and speech gating filters
@@ -655,10 +658,12 @@ class WebRtcClient(
             val decoderFactory = DefaultVideoDecoderFactory(sharedEglBase.eglBaseContext)
 
             // Audio Device Module customized for full-fidelity child vocalizations:
-            // 1. Hardware Echo Canceler enabled so speakerphone output doesn't loop into the mic
-            // 2. Hardware Noise Suppressor DISABLED so Android OS DSP does not filter out kid voices/shouts
+            // 1. Hardware Echo Canceler DISABLED (false) so WebRTC's native C++ Software AEC3 runs.
+            //    Hardware AEC on many Android OEM devices leaks in speakerphone mode and disables AEC3.
+            //    WebRTC Software AEC3 reliably subtracts speaker output without speech suppression.
+            // 2. Hardware Noise Suppressor DISABLED (false) so Android OS DSP does not filter out kid voices/shouts
             val adm = JavaAudioDeviceModule.builder(context)
-                .setUseHardwareAcousticEchoCanceler(true)
+                .setUseHardwareAcousticEchoCanceler(false)
                 .setUseHardwareNoiseSuppressor(false)
                 .createAudioDeviceModule()
 
