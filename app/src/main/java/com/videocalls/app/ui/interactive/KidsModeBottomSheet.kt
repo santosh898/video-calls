@@ -29,8 +29,8 @@ fun KidsModeBottomSheet(
     onGameSelected: (InteractiveGameType) -> Unit,
     sparklesEnabled: Boolean,
     onSparklesToggled: (Boolean) -> Unit,
-    toddlerLockEnabled: Boolean,
-    onToddlerLockToggled: (Boolean) -> Unit
+    isKidsFeaturesActive: Boolean,
+    onKidsFeaturesToggled: (Boolean) -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -186,25 +186,25 @@ fun KidsModeBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🔒", fontSize = 20.sp)
+                    Text(text = "🧸", fontSize = 20.sp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "Toddler Call Lock",
+                            text = "Kids Mode",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White
                         )
                         Text(
-                            text = "Prevents accidental back or hang up",
+                            text = "Enables gestures & prevents accidental hangup",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.6f)
                         )
                     }
                 }
                 Switch(
-                    checked = toddlerLockEnabled,
-                    onCheckedChange = onToddlerLockToggled,
+                    checked = isKidsFeaturesActive,
+                    onCheckedChange = onKidsFeaturesToggled,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = Color(0xFFF59E0B)

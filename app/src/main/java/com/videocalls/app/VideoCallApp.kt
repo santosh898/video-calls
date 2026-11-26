@@ -98,6 +98,7 @@ class VideoCallApp : Application() {
         const val CHANNEL_LISTENER = "background_listener_channel"
 
         var isAppInForeground: Boolean = false
+        var isInActiveCall: Boolean = false
 
         lateinit var instance: VideoCallApp
             private set

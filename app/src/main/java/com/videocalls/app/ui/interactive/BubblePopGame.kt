@@ -118,13 +118,14 @@ class BubbleGameManager(
         return false
     }
 
-    fun popRemoteBubble(id: Int, width: Float, height: Float) {
+    fun popRemoteBubble(id: Int, width: Float, height: Float, onBurst: ((Float, Float) -> Unit)? = null) {
         val index = bubbles.indexOfFirst { it.id == id }
         if (index != -1) {
             val b = bubbles.removeAt(index)
             popCount++
             KidsSoundManager.playPop()
-            onBubblePopped(b.id, b.x * width, b.y * height)
+            // Burst particles locally on remote pop, but NEVER call onBubblePopped (avoids infinite echo loop)
+            onBurst?.invoke(b.x * width, b.y * height)
         }
     }
 }

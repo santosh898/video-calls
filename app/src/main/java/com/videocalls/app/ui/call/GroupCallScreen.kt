@@ -145,24 +145,16 @@ fun GroupCallScreen(
         }
     }
 
-    // Interactive & Toddler Features (Inactive by default)
+    // Interactive & Kids Features (Inactive by default)
     var currentFilter by remember { mutableStateOf(InteractiveEffectType.NONE) }
     var currentBackground by remember { mutableStateOf(InteractiveBackgroundType.NONE) }
     var currentGame by remember { mutableStateOf(InteractiveGameType.NONE) }
     var sparklesEnabled by remember { mutableStateOf(false) }
-    var toddlerLockEnabled by remember { mutableStateOf(false) }
     var showKidsSheet by remember { mutableStateOf(false) }
     var isPeekABooOpen by remember { mutableStateOf(true) }
     var hasUserManuallySelectedEffect by remember { mutableStateOf(false) }
 
-    LaunchedEffect(currentGame) {
-        if (currentGame != InteractiveGameType.NONE) {
-            toddlerLockEnabled = true
-        }
-    }
-
-    // Internal tracker for when Kids features are active
-    // Activates when at least one filter/effect or background is set, deactivates ONLY when both are set to NONE via menu
+    // Kids Features & Protection UI Toggle: auto turns ON when any filter/effect/game is chosen
     var isKidsFeaturesActive by remember { mutableStateOf(false) }
 
     // Mirrored Filter & Background from Remote Peer
@@ -240,6 +232,7 @@ fun GroupCallScreen(
         val nextBg = allBackgrounds[nextIndex]
         currentBackground = nextBg
         sendBackgroundSync(nextBg)
+        areControlsVisible = false
         if (nextBg != InteractiveBackgroundType.NONE) {
             isKidsFeaturesActive = true
             KidsSoundManager.playWhoosh()
@@ -259,6 +252,7 @@ fun GroupCallScreen(
         val nextEffect = allEffects[nextIndex]
         currentFilter = nextEffect
         sendFeedFilter(nextEffect)
+        areControlsVisible = false
         if (nextEffect != InteractiveEffectType.NONE) {
             isKidsFeaturesActive = true
             KidsSoundManager.playSparkle()
@@ -271,7 +265,8 @@ fun GroupCallScreen(
     }
 
     val bubbleManager = remember {
-        BubbleGameManager { id, _, _ ->
+        BubbleGameManager { id, bx, by ->
+            particleManager.burst(bx, by, 16)
             val msg = JSONObject().apply {
                 put("type", "BUBBLE_POP")
                 put("id", id)
@@ -304,15 +299,14 @@ fun GroupCallScreen(
         }
     }
 
-    BackHandler {
-        if (toddlerLockEnabled) {
-            Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
-        } else {
-            // Accidental edge swipes / back button must NEVER terminate an active call.
-            // Reveal controls if hidden so the user sees the red hang up button if desired.
-            areControlsVisible = true
-            resetControlsTimer()
+    BackHandler(enabled = true) {
+        if (isKidsFeaturesActive) {
+            Toast.makeText(context, "Kids Mode is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
         }
+        // Accidental edge swipes / back button must NEVER terminate or leave an active call.
+        // Reveal controls if hidden so the user sees the red hang up button if desired.
+        areControlsVisible = true
+        resetControlsTimer()
     }
 
     LaunchedEffect(callSession?.status, callSession?.activeParticipants) {
@@ -390,14 +384,7 @@ fun GroupCallScreen(
                             InteractiveGameType.NONE
                         }
                         currentGame = game
-                        if (game != InteractiveGameType.NONE) {
-                            isKidsFeaturesActive = true
-                            toddlerLockEnabled = true
-                        } else if (currentFilter == InteractiveEffectType.NONE &&
-                            currentBackground == InteractiveBackgroundType.NONE
-                        ) {
-                            isKidsFeaturesActive = false
-                        }
+                        // Do NOT sync kids features or child lock to receiver!
                     }
                     "SPARKLE_BURST" -> {
                         val x = json.optDouble("x", 0.5).toFloat()
@@ -407,7 +394,9 @@ fun GroupCallScreen(
                     }
                     "BUBBLE_POP" -> {
                         val id = json.getInt("id")
-                        bubbleManager.popRemoteBubble(id, screenWidth, screenHeight)
+                        bubbleManager.popRemoteBubble(id, screenWidth, screenHeight) { px, py ->
+                            particleManager.burst(px, py, 16)
+                        }
                     }
                     "PEEK_A_BOO" -> {
                         isPeekABooOpen = json.getBoolean("isOpen")
@@ -484,11 +473,12 @@ fun GroupCallScreen(
             currentFilter != InteractiveEffectType.NONE ||
             currentBackground != InteractiveBackgroundType.NONE ||
             currentGame != InteractiveGameType.NONE ||
-            sparklesEnabled ||
-            toddlerLockEnabled
+            sparklesEnabled
 
     DisposableEffect(Unit) {
+        com.videocalls.app.VideoCallApp.isInActiveCall = true
         onDispose {
+            com.videocalls.app.VideoCallApp.isInActiveCall = false
             faceTracker.release()
             pipFaceTracker.release()
             mainSegTracker.release()
@@ -1182,8 +1172,8 @@ fun GroupCallScreen(
                     FilledIconButton(
                         onClick = {
                             resetControlsTimer()
-                            if (toddlerLockEnabled) {
-                                Toast.makeText(context, "Toddler Lock is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+                            if (isKidsFeaturesActive) {
+                                Toast.makeText(context, "Kids Mode is ON 🔒 Tap 🧸 to turn off", Toast.LENGTH_SHORT).show()
                             } else {
                                 leaveCallInternal()
                             }
@@ -1215,11 +1205,9 @@ fun GroupCallScreen(
                     sendBackgroundSync(it)
                     if (it != InteractiveBackgroundType.NONE) {
                         isKidsFeaturesActive = true
-                    } else if (currentFilter == InteractiveEffectType.NONE &&
-                               currentGame == InteractiveGameType.NONE
-                    ) {
-                        isKidsFeaturesActive = false
                     }
+                    showKidsSheet = false
+                    areControlsVisible = false
                 },
                 currentEffect = currentFilter,
                 onEffectSelected = {
@@ -1228,11 +1216,9 @@ fun GroupCallScreen(
                     sendFeedFilter(it)
                     if (it != InteractiveEffectType.NONE) {
                         isKidsFeaturesActive = true
-                    } else if (currentBackground == InteractiveBackgroundType.NONE &&
-                               currentGame == InteractiveGameType.NONE
-                    ) {
-                        isKidsFeaturesActive = false
                     }
+                    showKidsSheet = false
+                    areControlsVisible = false
                 },
                 currentGame = currentGame,
                 onGameSelected = {
@@ -1240,17 +1226,31 @@ fun GroupCallScreen(
                     sendGameSync(it)
                     if (it != InteractiveGameType.NONE) {
                         isKidsFeaturesActive = true
-                        toddlerLockEnabled = true
-                    } else if (currentBackground == InteractiveBackgroundType.NONE &&
-                               currentFilter == InteractiveEffectType.NONE
-                    ) {
-                        isKidsFeaturesActive = false
                     }
+                    showKidsSheet = false
+                    areControlsVisible = false
                 },
                 sparklesEnabled = sparklesEnabled,
                 onSparklesToggled = { sparklesEnabled = it },
-                toddlerLockEnabled = toddlerLockEnabled,
-                onToddlerLockToggled = { toddlerLockEnabled = it }
+                isKidsFeaturesActive = isKidsFeaturesActive,
+                onKidsFeaturesToggled = { enabled ->
+                    isKidsFeaturesActive = enabled
+                    if (!enabled) {
+                        currentFilter = InteractiveEffectType.NONE
+                        currentBackground = InteractiveBackgroundType.NONE
+                        currentGame = InteractiveGameType.NONE
+                        sendFeedFilter(InteractiveEffectType.NONE)
+                        sendBackgroundSync(InteractiveBackgroundType.NONE)
+                        sendGameSync(InteractiveGameType.NONE)
+                        areControlsVisible = true
+                        showKidsSheet = false
+                        Toast.makeText(context, "Kids Mode turned OFF", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showKidsSheet = false
+                        areControlsVisible = false
+                        Toast.makeText(context, "Kids Mode turned ON", Toast.LENGTH_SHORT).show()
+                    }
+                }
             )
         }
     }

@@ -109,23 +109,26 @@ class WebRtcClient(
         if (localAudioTrack == null) {
             val audioConstraints = MediaConstraints().apply {
                 // WebRTC Software AEC3: Software acoustic echo cancellation subtracts speakerphone output
-                // without clipping high-frequency or unvoiced speech (shouts, laughter, babble)
+                // without clipping high-frequency or unvoiced speech (shouts, laughter, babble).
+                // Do NOT use googDAEchoCancellation as Delay-Agnostic AEC aggressively gates mic during double-talk.
                 mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-                mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "true"))
-                mandatory.add(MediaConstraints.KeyValuePair("googDAEchoCancellation", "true"))
                 mandatory.add(MediaConstraints.KeyValuePair("echoCancellation", "true"))
 
                 // CRITICAL FOR KIDS: Disable ALL noise suppression and speech gating filters
                 // Default WebRTC NS treats high-pitched child shouts, shrieks & laughs as background noise
                 mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
                 mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("noiseSuppression", "false"))
                 mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "false"))
                 mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
                 mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
 
-                // Keep soft Auto Gain Control active to boost distant/quiet toddler whispers without clipping
-                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
+                // CRITICAL FOR KIDS: Disable Auto Gain Control (AGC)
+                // WebRTC AGC's peak compression limiter aggressively ducks volume after loud child shouts,
+                // causing the kid's voice to be lost half the time while gain slowly recovers.
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("autoGainControl", "false"))
             }
             localAudioSource = peerConnectionFactory.createAudioSource(audioConstraints)
             localAudioTrack = peerConnectionFactory.createAudioTrack("ARDAMSa0", localAudioSource)
@@ -220,7 +223,11 @@ class WebRtcClient(
                         localVideoTrack?.setEnabled(true)
                         localAudioTrack?.setEnabled(true)
                     }
-                    PeerConnection.IceConnectionState.DISCONNECTED,
+                    PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        // Transient state during network/data fluctuations; WebRTC automatically recovers.
+                        // Do NOT notify peer disconnected or kill call on transient DISCONNECTED!
+                        Log.w(TAG, "[$targetUid] ICE state DISCONNECTED (attempting automatic recovery)")
+                    }
                     PeerConnection.IceConnectionState.FAILED,
                     PeerConnection.IceConnectionState.CLOSED -> onPeerDisconnected?.invoke(targetUid)
                     else -> {}

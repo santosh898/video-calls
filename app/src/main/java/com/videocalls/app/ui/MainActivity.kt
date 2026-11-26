@@ -59,6 +59,19 @@ class MainActivity : ComponentActivity() {
             com.videocalls.app.service.CallListenerService.start(this)
         }
 
+        // Global back interceptor: back gesture or button must NEVER terminate an active call screen
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (com.videocalls.app.VideoCallApp.isInActiveCall) {
+                    // Intercept and swallow back press entirely during active calls
+                    return
+                }
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        })
+
         setContent {
             VideoCallsTheme {
                 Surface(
