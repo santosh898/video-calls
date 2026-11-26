@@ -65,7 +65,57 @@ fun KidsModeBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Master Kids Mode Toggle (Prominently placed at TOP above everything)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (isKidsFeaturesActive) Color(0xFFF59E0B).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.06f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isKidsFeaturesActive) Color(0xFFF59E0B).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "🧸", fontSize = 22.sp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Kids Mode",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isKidsFeaturesActive) Color(0xFFFBBF24) else Color.White
+                            )
+                            Text(
+                                text = if (isKidsFeaturesActive) "ON: Gestures active • Hangup protected" else "OFF: Turn on for gestures & lock",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isKidsFeaturesActive,
+                        onCheckedChange = onKidsFeaturesToggled,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFFF59E0B)
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             // 1. Cartoon Backgrounds
             Text(
@@ -174,40 +224,6 @@ fun KidsModeBottomSheet(
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = Color(0xFF10B981)
-                    )
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🧸", fontSize = 20.sp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "Kids Mode",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Enables gestures & prevents accidental hangup",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-                Switch(
-                    checked = isKidsFeaturesActive,
-                    onCheckedChange = onKidsFeaturesToggled,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFFF59E0B)
                     )
                 )
             }
