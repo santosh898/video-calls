@@ -34,7 +34,9 @@ enum class InteractiveBackgroundType(val displayName: String, val icon: String) 
 enum class InteractiveGameType(val displayName: String, val icon: String) {
     NONE("None", "❌"),
     BUBBLE_POP("Pop Bubbles", "🫧"),
-    PEEK_A_BOO("Peek-a-boo", "🙈")
+    PEEK_A_BOO("Peek-a-boo", "🙈"),
+    ALPHABET("ABC Letters", "🔤"),
+    NUMBERS("123 Numbers", "🔢")
 }
 
 data class NormalizedFace(

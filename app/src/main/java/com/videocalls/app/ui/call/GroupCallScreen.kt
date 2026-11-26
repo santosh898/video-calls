@@ -275,6 +275,20 @@ fun GroupCallScreen(
         }
     }
 
+    val lettersManager = remember {
+        FlyingLettersManager { gameType, index, normX, normY, rotation ->
+            val msg = JSONObject().apply {
+                put("type", "SPAWN_FLYING_CHAR")
+                put("game", gameType.name)
+                put("index", index)
+                put("x", normX.toDouble())
+                put("y", normY.toDouble())
+                put("rotation", rotation.toDouble())
+            }.toString()
+            rtcClient.sendDataMessage(null, msg)
+        }
+    }
+
     // Pinning state: ID of pinned peer (or "local")
     var pinnedId by remember { mutableStateOf<String?>(null) }
 
@@ -400,6 +414,28 @@ fun GroupCallScreen(
                     }
                     "PEEK_A_BOO" -> {
                         isPeekABooOpen = json.getBoolean("isOpen")
+                    }
+                    "SPAWN_FLYING_CHAR" -> {
+                        val gameStr = json.optString("game")
+                        val gameType = try {
+                            InteractiveGameType.valueOf(gameStr)
+                        } catch (_: Exception) {
+                            InteractiveGameType.ALPHABET
+                        }
+                        val index = json.optInt("index", 0)
+                        val normX = json.optDouble("x", 0.5).toFloat()
+                        val normY = json.optDouble("y", 0.5).toFloat()
+                        val rotation = json.optDouble("rotation", 0.0).toFloat()
+                        lettersManager.spawnRemote(
+                            gameType = gameType,
+                            index = index,
+                            normX = normX,
+                            normY = normY,
+                            rotation = rotation,
+                            viewportWidth = screenWidth,
+                            viewportHeight = screenHeight,
+                            particleManager = particleManager
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -997,6 +1033,20 @@ fun GroupCallScreen(
                         }.toString()
                         rtcClient.sendDataMessage(null, msg)
                     },
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.ALPHABET -> {
+                FlyingLettersOverlay(
+                    gameType = InteractiveGameType.ALPHABET,
+                    manager = lettersManager,
+                    particleManager = particleManager
+                )
+            }
+            InteractiveGameType.NUMBERS -> {
+                FlyingLettersOverlay(
+                    gameType = InteractiveGameType.NUMBERS,
+                    manager = lettersManager,
                     particleManager = particleManager
                 )
             }
