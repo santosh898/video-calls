@@ -71,7 +71,6 @@ fun HomeScreen(
                         modifier = Modifier.pointerInput(Unit) {
                             detectTapGestures(
                                 onLongPress = {
-                                    Toast.makeText(context, "🧪 Opening Feature Testing Lab...", Toast.LENGTH_SHORT).show()
                                     onOpenSecretTestScreen()
                                 }
                             )

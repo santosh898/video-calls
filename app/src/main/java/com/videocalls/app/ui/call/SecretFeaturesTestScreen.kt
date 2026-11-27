@@ -135,7 +135,7 @@ fun SecretFeaturesTestScreen(
 
     LaunchedEffect(areControlsVisible, lastInteractionTime) {
         if (areControlsVisible) {
-            delay(10000L)
+            delay(4000L)
             areControlsVisible = false
         }
     }
@@ -261,6 +261,12 @@ fun SecretFeaturesTestScreen(
                 eglBase = rtcClient.eglBase,
                 isMirror = true,
                 isOverlay = false,
+                onClick = {
+                    areControlsVisible = !areControlsVisible
+                    if (areControlsVisible) {
+                        resetControlsTimer()
+                    }
+                },
                 captureFrames = currentFilter == InteractiveEffectType.KALEIDOSCOPE,
                 onFrameCaptured = { bmp ->
                     cameraFrameBitmap = bmp
@@ -408,35 +414,9 @@ fun SecretFeaturesTestScreen(
             }
         )
 
-        // Top Lab Status Banner
+        // Persistent Translucent Menu Pill in Corner: ALWAYS present when controls are hidden
         AnimatedVisibility(
-            visible = areControlsVisible,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 16.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                border = BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.6f)),
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(text = "🧪 In-Call Features Lab (Solo Test)", color = Color(0xFFA5B4FC), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        // Persistent Translucent Menu Pill in Corner
-        AnimatedVisibility(
-            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE),
+            visible = !areControlsVisible,
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
