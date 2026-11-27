@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.IntSize
 import com.videocalls.app.R
 import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.random.Random
 
 data class FlyingChar(
@@ -34,7 +33,7 @@ data class FlyingChar(
     var y: Float,
     var vy: Float,
     val rotation: Float,
-    val spawnTime: Long,
+    var ageMillis: Float = 0f,
     var currentWidth: Float = 0f
 )
 
@@ -90,10 +89,10 @@ class FlyingLettersManager(
             Triple(numberDrawables[idx], numberLabels[idx], idx)
         }
 
-        val rotation = (Random.nextFloat() - 0.5f) * 28f // -14°..+14° random angle skew
-        val vy = -13f // Initial upward pop burst
+        val rotation = (Random.nextFloat() - 0.5f) * 24f // -12°..+12° random angle skew
+        val vy = -14f // Strong upward pop burst
 
-        val startW = if (viewportWidth > 0) viewportWidth * 0.14f else 120f
+        val startW = if (viewportWidth > 0) viewportWidth * 0.12f else 120f
         val item = FlyingChar(
             id = nextId++,
             resId = resId,
@@ -106,7 +105,7 @@ class FlyingLettersManager(
             y = tapY,
             vy = vy,
             rotation = rotation,
-            spawnTime = System.currentTimeMillis(),
+            ageMillis = 0f,
             currentWidth = startW
         )
         items.add(item)
@@ -140,9 +139,9 @@ class FlyingLettersManager(
 
         val realX = normX * viewportWidth
         val realY = normY * viewportHeight
-        val vy = -13f
+        val vy = -14f
 
-        val startW = if (viewportWidth > 0) viewportWidth * 0.14f else 120f
+        val startW = if (viewportWidth > 0) viewportWidth * 0.12f else 120f
         val item = FlyingChar(
             id = nextId++,
             resId = resId,
@@ -155,7 +154,7 @@ class FlyingLettersManager(
             y = realY,
             vy = vy,
             rotation = rotation,
-            spawnTime = System.currentTimeMillis(),
+            ageMillis = 0f,
             currentWidth = startW
         )
         items.add(item)
@@ -165,37 +164,35 @@ class FlyingLettersManager(
     }
 
     fun update(timeMillis: Long, viewportWidth: Float, viewportHeight: Float) {
-        if (lastUpdateTime == 0L) lastUpdateTime = timeMillis
-        val dt = ((timeMillis - lastUpdateTime).toFloat() / 16.67f).coerceIn(0.5f, 2.5f)
+        if (lastUpdateTime == 0L) {
+            lastUpdateTime = timeMillis
+            return
+        }
+        val deltaMillis = (timeMillis - lastUpdateTime).coerceIn(4L, 50L)
         lastUpdateTime = timeMillis
+        val dt = deltaMillis.toFloat() / 16.67f
 
         val iterator = items.iterator()
         while (iterator.hasNext()) {
             val item = iterator.next()
-            val age = (timeMillis - item.spawnTime).coerceAtLeast(0L)
+            item.ageMillis += deltaMillis.toFloat()
 
-            // 1. Expansion: Starts at fingertip size (~14% screen width), gets big to full screen width (~94% screen width)
-            val startW = (viewportWidth * 0.14f).coerceAtLeast(80f)
+            // 1. Expansion: Starts small (12% screen width, fingertip size), grows to full screen width (94% screen width)
+            val startW = (viewportWidth * 0.12f).coerceAtLeast(80f)
             val targetW = (viewportWidth * 0.94f).coerceAtLeast(320f)
 
-            // Expand over 420ms with smooth cubic ease-out
-            val progress = (age / 420f).coerceIn(0f, 1f)
-            val scaleCurve = if (progress < 0.85f) {
-                val t = progress / 0.85f
-                1f - (1f - t) * (1f - t) * (1f - t)
-            } else {
-                val t = (progress - 0.85f) / 0.15f
-                1.0f + 0.04f * sin(t * Math.PI.toFloat())
-            }
-            item.currentWidth = startW + (targetW - startW) * scaleCurve
+            val progress = (item.ageMillis / 450f).coerceIn(0f, 1f)
+            // Cubic ease-out: 1 - (1 - progress)^3
+            val scaleFactor = 1f - (1f - progress) * (1f - progress) * (1f - progress)
+            item.currentWidth = startW + (targetW - startW) * scaleFactor
 
-            // 2. Horizontal centering: As it gets big to screen width, it floats toward horizontal center (viewportWidth / 2f)
-            val centerProgress = (age / 380f).coerceIn(0f, 1f)
+            // 2. Horizontal centering: As it inflates to screen width, it glides toward screen center (viewportWidth / 2)
+            val centerProgress = (item.ageMillis / 400f).coerceIn(0f, 1f)
             val centerEase = centerProgress * centerProgress * (3f - 2f * centerProgress) // smoothstep
             val targetX = viewportWidth / 2f
             item.x = item.startX + (targetX - item.startX) * centerEase
 
-            // 3. Gravity downward acceleration
+            // 3. Vertical physics: Initial upward pop burst, gravity pulls down
             item.vy += 0.52f * dt
             item.y += item.vy * dt
 
@@ -264,6 +261,10 @@ fun FlyingLettersOverlay(
             }
     ) {
         val _tick = frameTick // Invalidate on every vsync frame for 60fps/120fps smooth animation
+        if (size.width > 0 && size.height > 0 && (screenWidth != size.width || screenHeight != size.height)) {
+            screenWidth = size.width
+            screenHeight = size.height
+        }
 
         for (item in manager.items) {
             val bitmap = if (item.isAlphabet) {
