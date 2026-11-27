@@ -888,9 +888,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game OR solo test)
+        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game)
         AnimatedVisibility(
-            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE || isSoloTest),
+            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE),
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
