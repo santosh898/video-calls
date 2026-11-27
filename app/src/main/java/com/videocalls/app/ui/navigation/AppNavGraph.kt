@@ -16,6 +16,7 @@ import com.videocalls.app.ui.auth.LoginScreen
 import com.videocalls.app.ui.auth.SimIdentityScreen
 import com.videocalls.app.ui.call.GroupCallScreen
 import com.videocalls.app.ui.call.IncomingCallScreen
+import com.videocalls.app.ui.call.SecretFeaturesTestScreen
 import com.videocalls.app.ui.call.SingleCallScreen
 import com.videocalls.app.ui.group.CreateGroupScreen
 import com.videocalls.app.ui.group.GroupDetailScreen
@@ -62,6 +63,9 @@ fun AppNavGraph(
             val uid = getActiveUid() ?: return@composable
             HomeScreen(
                 currentUid = uid,
+                onOpenSecretTestScreen = {
+                    navController.navigate(Screen.SecretFeaturesTest.route)
+                },
                 onStartSingleCall = { targetUid, targetName, targetPhone, callType ->
                     coroutineScope.launch {
                         val myName = authRepo.getLocalDisplayName().ifBlank { "User" }
@@ -273,6 +277,12 @@ fun AppNavGraph(
                 onDeclineCall = {
                     navController.popBackStack()
                 }
+            )
+        }
+
+        composable(Screen.SecretFeaturesTest.route) {
+            SecretFeaturesTestScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }

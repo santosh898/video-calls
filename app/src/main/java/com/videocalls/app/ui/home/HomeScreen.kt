@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -20,10 +21,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import android.widget.Toast
 import com.videocalls.app.BuildConfig
 import com.videocalls.app.data.model.CallType
 import com.videocalls.app.data.repository.AuthRepository
@@ -39,6 +42,7 @@ fun HomeScreen(
     onJoinActiveCall: (callId: String, groupId: String, groupName: String) -> Unit,
     onCreateGroupClick: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenSecretTestScreen: () -> Unit = {},
     authRepository: AuthRepository = remember { AuthRepository() }
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -62,7 +66,17 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    Toast.makeText(context, "🧪 Opening Feature Testing Lab...", Toast.LENGTH_SHORT).show()
+                                    onOpenSecretTestScreen()
+                                }
+                            )
+                        }
+                    ) {
                         Text(
                             text = "VideoCalls",
                             fontWeight = FontWeight.Bold,

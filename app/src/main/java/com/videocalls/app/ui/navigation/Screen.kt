@@ -23,4 +23,5 @@ sealed class Screen(val route: String) {
             return "incoming_call/$callId?callerName=$callerName&callerPhone=$callerPhone&callType=$callType&isGroupCall=$isGroupCall&groupId=${groupId ?: ""}"
         }
     }
+    object SecretFeaturesTest : Screen("secret_features_test")
 }
