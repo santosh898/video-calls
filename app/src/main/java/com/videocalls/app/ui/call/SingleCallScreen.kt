@@ -65,6 +65,7 @@ fun SingleCallScreen(
     targetName: String,
     targetPhone: String,
     isVideo: Boolean,
+    isSoloTest: Boolean = false,
     onCallEnded: () -> Unit,
     signalingRepo: CallSignalingRepository = remember { CallSignalingRepository() }
 ) {
@@ -302,8 +303,10 @@ fun SingleCallScreen(
         if (isEnded) return
         isEnded = true
         coroutineScope.launch {
-            signalingRepo.updateCallStatus(callId, CallStatus.ENDED)
-            CallService.stop(context)
+            if (!isSoloTest) {
+                signalingRepo.updateCallStatus(callId, CallStatus.ENDED)
+                CallService.stop(context)
+            }
             faceTracker.release()
             pipFaceTracker.release()
             mainSegTracker.release()
@@ -316,15 +319,23 @@ fun SingleCallScreen(
     BackHandler(enabled = true) {
         if (isKidsFeaturesActive) {
             Toast.makeText(context, "Kids Mode is ON 🔒 Tap 🧸 to unlock", Toast.LENGTH_SHORT).show()
+            areControlsVisible = true
+            resetControlsTimer()
+        } else {
+            if (isSoloTest) {
+                endCallInternal()
+            } else {
+                // Accidental edge swipes / back button must NEVER terminate or pop an active call.
+                // Reveal controls if hidden so the user sees the red hang up button if desired.
+                areControlsVisible = true
+                resetControlsTimer()
+            }
         }
-        // Accidental edge swipes / back button must NEVER terminate or pop an active call.
-        // Reveal controls if hidden so the user sees the red hang up button if desired.
-        areControlsVisible = true
-        resetControlsTimer()
     }
 
     // React to remote call session updates
     LaunchedEffect(callSession?.status) {
+        if (isSoloTest) return@LaunchedEffect
         val status = callSession?.status
         if (status == CallStatus.ENDED || status == CallStatus.REJECTED || status == CallStatus.MISSED) {
             if (!isEnded) {
@@ -339,6 +350,10 @@ fun SingleCallScreen(
     // Signaling and WebRTC Lifecycle
     LaunchedEffect(callId) {
         rtcClient.startLocalMedia(isAudioOnly = !isVideo)
+        if (isSoloTest) {
+            isConnected = true
+            return@LaunchedEffect
+        }
         CallService.start(context, callId, targetName, isVideo)
 
         // Forward local ICE candidates to Firestore
@@ -506,22 +521,30 @@ fun SingleCallScreen(
     }
 
     DisposableEffect(Unit) {
-        com.videocalls.app.VideoCallApp.isInActiveCall = true
+        if (!isSoloTest) {
+            com.videocalls.app.VideoCallApp.isInActiveCall = true
+        }
         onDispose {
-            com.videocalls.app.VideoCallApp.isInActiveCall = false
+            if (!isSoloTest) {
+                com.videocalls.app.VideoCallApp.isInActiveCall = false
+            }
             faceTracker.release()
             pipFaceTracker.release()
             mainSegTracker.release()
             pipSegTracker.release()
             if (!isEnded) {
                 isEnded = true
-                CallService.stop(context)
+                if (!isSoloTest) {
+                    CallService.stop(context)
+                }
                 rtcClient.close()
             }
         }
     }
 
     val remoteTrack = remoteVideoTracks.values.firstOrNull()
+    val mainVideoTrack = if (isSoloTest) localVideoTrack else remoteTrack
+    val isMainMirror = isSoloTest
 
     val activeMainFilter = currentFilter
     val activePipFilter = remoteAppliedFilterOnMe
@@ -535,32 +558,32 @@ fun SingleCallScreen(
             currentGame != InteractiveGameType.NONE ||
             sparklesEnabled
 
-    LaunchedEffect(activeMainFilter, remoteTrack) {
+    LaunchedEffect(activeMainFilter, mainVideoTrack) {
         if (activeMainFilter == InteractiveFilterType.NONE) {
             faceTracker.detach()
         } else {
-            faceTracker.attach(remoteTrack, mirror = false)
+            faceTracker.attach(mainVideoTrack, mirror = isMainMirror)
         }
     }
 
     LaunchedEffect(activePipFilter, localVideoTrack) {
-        if (activePipFilter == InteractiveFilterType.NONE) {
+        if (isSoloTest || activePipFilter == InteractiveFilterType.NONE) {
             pipFaceTracker.detach()
         } else {
             pipFaceTracker.attach(localVideoTrack, mirror = true)
         }
     }
 
-    LaunchedEffect(activeMainBackground, remoteTrack) {
+    LaunchedEffect(activeMainBackground, mainVideoTrack) {
         if (activeMainBackground == InteractiveBackgroundType.NONE) {
             mainSegTracker.detach()
         } else {
-            mainSegTracker.attach(remoteTrack, mirror = false)
+            mainSegTracker.attach(mainVideoTrack, mirror = isMainMirror)
         }
     }
 
     LaunchedEffect(activePipBackground, localVideoTrack) {
-        if (activePipBackground == InteractiveBackgroundType.NONE) {
+        if (isSoloTest || activePipBackground == InteractiveBackgroundType.NONE) {
             pipSegTracker.detach()
         } else {
             pipSegTracker.attach(localVideoTrack, mirror = true)
@@ -586,12 +609,13 @@ fun SingleCallScreen(
                 }
             }
     ) {
-        // Remote View
-        if (isVideo && remoteTrack != null) {
+        // Main Video View (Remote in live call, Local in Solo Test mode)
+        if (isVideo && mainVideoTrack != null) {
             WebRtcSurfaceView(
                 modifier = Modifier.fillMaxSize(),
-                videoTrack = remoteTrack,
+                videoTrack = mainVideoTrack,
                 eglBase = rtcClient.eglBase,
+                isMirror = isMainMirror,
                 isOverlay = false,
                 captureFrames = activeMainFilter == InteractiveEffectType.KALEIDOSCOPE,
                 onFrameCaptured = { bmp ->
@@ -605,13 +629,13 @@ fun SingleCallScreen(
                 }
             )
 
-            // Cartoon Background Scenery Overlay on Remote View (Replacing background like GMeet / Teams)
+            // Cartoon Background Scenery Overlay on Main View
             CartoonBackgroundOverlay(
                 backgroundType = activeMainBackground,
                 maskBitmap = mainMaskBitmap
             )
 
-            // Interactive Face Filters / Effects Overlay on Remote View
+            // Interactive Face Filters / Effects Overlay on Main View
             FaceFiltersOverlay(
                 filterType = activeMainFilter,
                 face = detectedFace,
@@ -696,8 +720,8 @@ fun SingleCallScreen(
             }
         }
 
-        // Local Preview PIP in top right (Video only)
-        if (isVideo && isVideoEnabled && localVideoTrack != null) {
+        // Local Preview PIP in top right (Video only, hidden in solo test mode)
+        if (isVideo && isVideoEnabled && localVideoTrack != null && !isSoloTest && remoteTrack != null) {
             Card(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -864,9 +888,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game)
+        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game OR solo test)
         AnimatedVisibility(
-            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE),
+            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE || isSoloTest),
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier

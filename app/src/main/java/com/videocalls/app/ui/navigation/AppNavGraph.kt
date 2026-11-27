@@ -16,7 +16,6 @@ import com.videocalls.app.ui.auth.LoginScreen
 import com.videocalls.app.ui.auth.SimIdentityScreen
 import com.videocalls.app.ui.call.GroupCallScreen
 import com.videocalls.app.ui.call.IncomingCallScreen
-import com.videocalls.app.ui.call.SecretFeaturesTestScreen
 import com.videocalls.app.ui.call.SingleCallScreen
 import com.videocalls.app.ui.group.CreateGroupScreen
 import com.videocalls.app.ui.group.GroupDetailScreen
@@ -64,7 +63,16 @@ fun AppNavGraph(
             HomeScreen(
                 currentUid = uid,
                 onOpenSecretTestScreen = {
-                    navController.navigate(Screen.SecretFeaturesTest.route)
+                    navController.navigate(
+                        Screen.SingleCall.createRoute(
+                            callId = "solo_test_${System.currentTimeMillis()}",
+                            isOutgoing = true,
+                            targetName = "Solo Test",
+                            targetPhone = "",
+                            isVideo = true,
+                            isSoloTest = true
+                        )
+                    )
                 },
                 onStartSingleCall = { targetUid, targetName, targetPhone, callType ->
                     coroutineScope.launch {
@@ -188,7 +196,8 @@ fun AppNavGraph(
                 navArgument("isOutgoing") { type = NavType.BoolType; defaultValue = false },
                 navArgument("targetName") { type = NavType.StringType; defaultValue = "Caller" },
                 navArgument("targetPhone") { type = NavType.StringType; defaultValue = "" },
-                navArgument("isVideo") { type = NavType.BoolType; defaultValue = true }
+                navArgument("isVideo") { type = NavType.BoolType; defaultValue = true },
+                navArgument("isSoloTest") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStackEntry ->
             val uid = getActiveUid() ?: return@composable
@@ -197,6 +206,7 @@ fun AppNavGraph(
             val targetName = backStackEntry.arguments?.getString("targetName") ?: "Caller"
             val targetPhone = backStackEntry.arguments?.getString("targetPhone") ?: ""
             val isVideo = backStackEntry.arguments?.getBoolean("isVideo") ?: true
+            val isSoloTest = backStackEntry.arguments?.getBoolean("isSoloTest") ?: false
 
             SingleCallScreen(
                 callId = callId,
@@ -205,6 +215,7 @@ fun AppNavGraph(
                 targetName = targetName,
                 targetPhone = targetPhone,
                 isVideo = isVideo,
+                isSoloTest = isSoloTest,
                 onCallEnded = { navController.popBackStack() }
             )
         }
@@ -277,12 +288,6 @@ fun AppNavGraph(
                 onDeclineCall = {
                     navController.popBackStack()
                 }
-            )
-        }
-
-        composable(Screen.SecretFeaturesTest.route) {
-            SecretFeaturesTestScreen(
-                onBack = { navController.popBackStack() }
             )
         }
     }

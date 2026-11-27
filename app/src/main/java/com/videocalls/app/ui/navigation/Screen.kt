@@ -8,9 +8,9 @@ sealed class Screen(val route: String) {
     object GroupDetail : Screen("group_detail/{groupId}") {
         fun createRoute(groupId: String) = "group_detail/$groupId"
     }
-    object SingleCall : Screen("single_call/{callId}?isOutgoing={isOutgoing}&targetName={targetName}&targetPhone={targetPhone}&isVideo={isVideo}") {
-        fun createRoute(callId: String, isOutgoing: Boolean, targetName: String, targetPhone: String, isVideo: Boolean): String {
-            return "single_call/$callId?isOutgoing=$isOutgoing&targetName=$targetName&targetPhone=$targetPhone&isVideo=$isVideo"
+    object SingleCall : Screen("single_call/{callId}?isOutgoing={isOutgoing}&targetName={targetName}&targetPhone={targetPhone}&isVideo={isVideo}&isSoloTest={isSoloTest}") {
+        fun createRoute(callId: String, isOutgoing: Boolean, targetName: String, targetPhone: String, isVideo: Boolean, isSoloTest: Boolean = false): String {
+            return "single_call/$callId?isOutgoing=$isOutgoing&targetName=$targetName&targetPhone=$targetPhone&isVideo=$isVideo&isSoloTest=$isSoloTest"
         }
     }
     object GroupCall : Screen("group_call/{callId}?groupId={groupId}&groupName={groupName}&isVideo={isVideo}") {
@@ -23,5 +23,4 @@ sealed class Screen(val route: String) {
             return "incoming_call/$callId?callerName=$callerName&callerPhone=$callerPhone&callType=$callType&isGroupCall=$isGroupCall&groupId=${groupId ?: ""}"
         }
     }
-    object SecretFeaturesTest : Screen("secret_features_test")
 }
