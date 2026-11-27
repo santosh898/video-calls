@@ -47,6 +47,11 @@ class FlyingLettersManager(
     var alphabetIndex by mutableStateOf(0)
     var numberIndex by mutableStateOf(0)
 
+    fun resetIndices() {
+        alphabetIndex = 0
+        numberIndex = 0
+    }
+
     val alphabetDrawables = listOf(
         R.drawable.letter_a,
         R.drawable.letter_b,
@@ -131,9 +136,11 @@ class FlyingLettersManager(
         val isAlpha = (gameType == InteractiveGameType.ALPHABET)
         val (resId, label) = if (isAlpha) {
             val safeIdx = index.coerceIn(0, alphabetDrawables.size - 1)
+            alphabetIndex = (safeIdx + 1) % alphabetDrawables.size
             Pair(alphabetDrawables[safeIdx], alphabetLabels[safeIdx])
         } else {
             val safeIdx = index.coerceIn(0, numberDrawables.size - 1)
+            numberIndex = (safeIdx + 1) % numberDrawables.size
             Pair(numberDrawables[safeIdx], numberLabels[safeIdx])
         }
 

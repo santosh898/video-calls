@@ -414,6 +414,7 @@ fun SingleCallScreen(
                             InteractiveGameType.NONE
                         }
                         currentGame = game
+                        lettersManager.resetIndices()
                         // Do NOT activate kids features or child lock on receiver!
                     }
                     "SPARKLE_BURST" -> {
@@ -863,9 +864,9 @@ fun SingleCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: ONLY present when kids features are active AND controls are hidden
+        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game)
         AnimatedVisibility(
-            visible = !areControlsVisible && isKidsFeaturesActive,
+            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE),
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -1065,6 +1066,7 @@ fun SingleCallScreen(
                 currentGame = currentGame,
                 onGameSelected = {
                     currentGame = it
+                    lettersManager.resetIndices()
                     sendGameSync(it)
                     if (it != InteractiveGameType.NONE) {
                         isKidsFeaturesActive = true

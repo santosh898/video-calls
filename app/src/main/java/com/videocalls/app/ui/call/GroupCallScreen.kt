@@ -398,6 +398,7 @@ fun GroupCallScreen(
                             InteractiveGameType.NONE
                         }
                         currentGame = game
+                        lettersManager.resetIndices()
                         // Do NOT sync kids features or child lock to receiver!
                     }
                     "SPARKLE_BURST" -> {
@@ -1071,9 +1072,9 @@ fun GroupCallScreen(
             }
         )
 
-        // Persistent Translucent Menu Pill in Corner: ONLY present when kids features are active AND controls are hidden
+        // Persistent Translucent Menu Pill in Corner: Visible when controls are hidden AND (kids features are active OR playing a game)
         AnimatedVisibility(
-            visible = !areControlsVisible && isKidsFeaturesActive,
+            visible = !areControlsVisible && (isKidsFeaturesActive || currentGame != InteractiveGameType.NONE),
             enter = fadeIn(animationSpec = tween(250)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -1273,6 +1274,7 @@ fun GroupCallScreen(
                 currentGame = currentGame,
                 onGameSelected = {
                     currentGame = it
+                    lettersManager.resetIndices()
                     sendGameSync(it)
                     if (it != InteractiveGameType.NONE) {
                         isKidsFeaturesActive = true
